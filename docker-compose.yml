@@ -1,0 +1,16 @@
+services:
+  app:
+    build:
+      context: ./App
+    ports:
+      - "19000:19000"
+      - "19001:19001"
+      - "19002:19002"
+      - "8081:8081"
+    volumes:
+      - ./App:/app
+      - /app/node_modules
+    environment:
+      - EXPO_DEBUG=true
+    tty: true
+    command: npm start

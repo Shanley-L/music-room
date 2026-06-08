@@ -1,7 +1,7 @@
 import { navigate } from 'expo-router/build/global-state/routing';
 import { useEffect, useState } from 'react';
 import { Text, View, StyleSheet } from 'react-native';
-import Animated, { useSharedValue, withSpring, withDelay, ZoomIn} from 'react-native-reanimated';
+import Animated, { ZoomIn} from 'react-native-reanimated';
 
 import { useFonts, Oi_400Regular } from '@expo-google-fonts/oi';
 
