@@ -14,15 +14,3 @@ services:
       - EXPO_DEBUG=true
     tty: true
     command: npm start
-  api:
-    build:
-      context: ./Api
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./Api:/usr/src/app
-      - /usr/src/app/node_modules
-    environment:
-      - NODE_ENV=development
-      - CHOKIDAR_USEPOLLING=true
-    command: npm run dev
