@@ -1,4 +1,40 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: musicroom
+      POSTGRES_PASSWORD: musicroom
+      POSTGRES_DB: musicroom
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  api:
+    build:
+      context: ./Api
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./Api:/usr/src/app
+      - /usr/src/app/node_modules
+    environment:
+      - NODE_ENV=development
+      - CHOKIDAR_USEPOLLING=true
+      - DATABASE_URL=postgresql://musicroom:musicroom@postgres:5432/musicroom
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - postgres
+      - redis
+    command: npm run dev
+
   app:
     build:
       context: ./App
@@ -14,15 +50,6 @@ services:
       - EXPO_DEBUG=true
     tty: true
     command: npm start
-  api:
-    build:
-      context: ./Api
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./Api:/usr/src/app
-      - /usr/src/app/node_modules
-    environment:
-      - NODE_ENV=development
-      - CHOKIDAR_USEPOLLING=true
-    command: npm run dev
+
+volumes:
+  postgres_data:

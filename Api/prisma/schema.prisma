@@ -1,0 +1,83 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum RoomVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum VoteLicense {
+  EVERYONE
+  INVITED_ONLY
+  GEO_TIME_RESTRICTED
+}
+
+model Room {
+  id          String         @id @default(cuid())
+  name        String
+  visibility  RoomVisibility @default(PUBLIC)
+  inviteCode  String?        @unique
+  license     VoteLicense    @default(EVERYONE)
+
+  latitude    Float?
+  longitude   Float?
+  radiusM     Int?
+  voteStartAt DateTime?
+  voteEndAt   DateTime?
+
+  ownerId   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  invites RoomInvite[]
+  tracks  Track[]
+}
+
+model RoomInvite {
+  id        String   @id @default(cuid())
+  roomId    String
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId    String
+  createdAt DateTime @default(now())
+
+  @@unique([roomId, userId])
+}
+
+model Track {
+  id         String  @id @default(cuid())
+  roomId     String
+  room       Room    @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  externalId String
+  title      String
+  artist     String
+  album      String?
+  preview    String?
+  duration   Int?
+
+  voteCount   Int @default(0)
+  version     Int @default(0)
+  position    Int
+
+  suggestedBy String
+  createdAt   DateTime @default(now())
+
+  votes Vote[]
+
+  @@unique([roomId, externalId])
+  @@index([roomId, position])
+}
+
+model Vote {
+  id        String   @id @default(cuid())
+  trackId   String
+  track     Track    @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  userId    String
+  createdAt DateTime @default(now())
+
+  @@unique([trackId, userId])
+}
