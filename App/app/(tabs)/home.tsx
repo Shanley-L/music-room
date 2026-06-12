@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useAudioPlayer } from 'expo-audio';
 import {
   View,
   Text,
@@ -26,6 +27,25 @@ type DeezerTrack = {
 export default function HomeScreen() {
   const [tracks, setTracks] = useState<DeezerTrack[]>([]);
   const [loading, setLoading] = useState(true);
+  const [trackUrl, setTrackUrl] = useState<string>('');
+
+  const player = useAudioPlayer(trackUrl);
+
+  const playSong = (url: string) => {
+    console.log(url);
+    if (player.playing) {
+      player.pause();
+    } else if (!player.playing) {
+      player.play();
+    }
+    setTrackUrl(url);
+  };
+
+  useEffect(() => {
+    if (trackUrl) {
+      player.play();
+    }
+  }, [trackUrl])
 
   useEffect(() => {
     async function loadDiscover() {
@@ -63,7 +83,7 @@ export default function HomeScreen() {
         columnWrapperStyle={styles.row}
         contentContainerStyle={styles.listContent}
         renderItem={({ item }) => (
-          <Pressable style={styles.card}>
+          <Pressable onPress={() => playSong(item.preview)} style={styles.card}>
             <Image
               source={{ uri: item.album.cover_medium }}
               style={styles.cover}

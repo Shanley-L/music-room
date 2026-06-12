@@ -1,8 +1,10 @@
-FROM node:20-bullseye-slim
+FROM docker.io/library/node:20-bullseye-slim
 
 WORKDIR /usr/src/app
 
 COPY package*.json .
+
+RUN npm install
 
 RUN npm ci --no-audit --prefer-offline
 
