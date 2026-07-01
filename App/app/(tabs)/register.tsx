@@ -8,11 +8,13 @@ import {
   Alert 
 } from 'react-native';
 import { Button } from '@react-navigation/elements';
+import { useAuth } from '../../context/authContext';
 
 const Register = () => {
+  const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [backendUrl, setBackendUrl] = useState('https://api.musicroom.local'); 
+  const [backendUrl, setBackendUrl] = useState('http://localhost:3000'); 
 
   const getDeviceLogs = () => {
     return {
@@ -34,8 +36,6 @@ const Register = () => {
       metadata: getDeviceLogs()
     };
 
-    console.log(`Registering user at: ${backendUrl}/api/auth/register`, payload);
-
     try {
       const response = await fetch(`${backendUrl}/api/auth/register`, {
         method: 'POST',
@@ -49,7 +49,8 @@ const Register = () => {
           'A verification email has been sent. Please validate your email before logging in.'
         );
       } else {
-        Alert.alert('Registration Failed', 'An error occurred during account creation.');
+        const errorData = await response.json().catch(() => ({}));
+        Alert.alert('Registration Failed', errorData.message || 'An error occurred during account creation.');
       }
     } catch (error) {
       console.error('Registration API Error:', error);
@@ -57,11 +58,15 @@ const Register = () => {
     }
   };
 
-  const handleSocialRegister = (provider: 'Google' | 'Facebook') => {
+  const handleSocialRegister = async (provider: 'Google' | 'Facebook') => {
     console.log(`Initiating ${provider} Registration Flow...`);
-
-    // TODO: Implement actual OAuth flow for Google and Facebook
-	
+    try {
+      // Social registration flows bypass explicit verification emails
+      // const token = await executeSocialOAuth(provider);
+      // if (token) await login(token);
+    } catch (error) {
+      console.error(`${provider} registration error`, error);
+    }
   };
 
   return (

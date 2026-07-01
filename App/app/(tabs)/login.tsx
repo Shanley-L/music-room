@@ -5,14 +5,17 @@ import {
   StyleSheet, 
   TextInput, 
   TouchableOpacity, 
-  Platform 
+  Platform,
+  Alert 
 } from 'react-native';
 import { Button } from '@react-navigation/elements';
+import { useAuth } from '../../context/authContext';
 
 const Login = () => {
+  const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [backendUrl, setBackendUrl] = useState('https://api.musicroom.local'); 
+  const [backendUrl, setBackendUrl] = useState('http://localhost:3000'); 
 
   const getDeviceLogs = () => {
     return {
@@ -23,15 +26,16 @@ const Login = () => {
   };
 
   const handleEmailLogin = async () => {
-    const logData = getDeviceLogs();
-    
+    if (!email || !password) {
+      Alert.alert('Error', 'Please fill in all fields.');
+      return;
+    }
+
     const payload = {
       email,
       password,
-      metadata: logData
+      metadata: getDeviceLogs()
     };
-
-    console.log(`Sending login request to: ${backendUrl}/api/auth/login`, payload);
     
     try {
       const response = await fetch(`${backendUrl}/api/auth/login`, {
@@ -39,20 +43,31 @@ const Login = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
+      
       const data = await response.json();
 
-      // Handle JWT token storage / state management here
+      if (response.ok && data.token) {
+        await login(data.token); 
+        Alert.alert('Welcome!', 'Login successful.');
+      } else {
+        Alert.alert('Login Failed', data.message || 'Invalid email or password.');
+      }
       
     } catch (error) {
       console.error("Login failed:", error);
+      Alert.alert('Connection Error', 'Could not connect to the backend server.');
     }
   };
 
-  const handleSocialLogin = (provider: 'Google' | 'Facebook') => {
+  const handleSocialLogin = async (provider: 'Google' | 'Facebook') => {
     console.log(`Triggering ${provider} OAuth Flow...`);
-
-    // TODO: Implement actual OAuth flow for Google and Facebook
-    
+    try {
+      // Once OAuth SDK yields a token and your backend verifies it:
+      // const response = await backendSocialAuthExchange(oauthToken);
+      // if (response.token) await login(response.token);
+    } catch (error) {
+      console.error(`${provider} login failed`, error);
+    }
   };
 
   return (
