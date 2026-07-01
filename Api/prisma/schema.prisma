@@ -17,6 +17,29 @@ enum VoteLicense {
   GEO_TIME_RESTRICTED
 }
 
+model User {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  passwordHash   String?  // Nullable because Google/Facebook users don't need a local password
+  googleId       String?  @unique
+  facebookId     String?  @unique
+  isEmailVerified Boolean @default(false) // Required for V.1 Mail Validation
+
+  // Profile Information (V.1 Tiers)
+  publicBio      String?
+  friendsOnlyBio String?
+  privateNotes   String?
+  musicPrefs     String[] // Simple array to store music preferences
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations to your existing models
+  rooms          Room[]
+  invites        RoomInvite[]
+  votes          Vote[]
+}
+
 model Room {
   id          String         @id @default(cuid())
   name        String
@@ -31,6 +54,7 @@ model Room {
   voteEndAt   DateTime?
 
   ownerId   String
+  owner     User             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -43,6 +67,7 @@ model RoomInvite {
   roomId    String
   room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
   userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
 
   @@unique([roomId, userId])
@@ -77,6 +102,7 @@ model Vote {
   trackId   String
   track     Track    @relation(fields: [trackId], references: [id], onDelete: Cascade)
   userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
 
   @@unique([trackId, userId])
