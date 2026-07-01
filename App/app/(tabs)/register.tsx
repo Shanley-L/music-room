@@ -14,7 +14,7 @@ const Register = () => {
   const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [backendUrl, setBackendUrl] = useState('http://localhost:3000'); 
+  const [backendUrl, setBackendUrl] = useState('http://127.0.0.1:3000'); 
 
   const getDeviceLogs = () => {
     return {

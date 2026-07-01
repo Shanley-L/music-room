@@ -32,3 +32,8 @@ api-test:
 	$(COMPOSE) exec api node -e "\
 	  fetch('http://127.0.0.1:3000/api/rooms',{method:'POST',headers:{'Content-Type':'application/json','X-Dev-User-Id':'alice'},body:JSON.stringify({name:'Test',visibility:'PUBLIC'})})\
 	  .then(r=>r.json()).then(console.log)"
+
+clean:
+	$(COMPOSE) down -v
+	rm -rf App/node_modules
+	rm -rf Api/node_modules
