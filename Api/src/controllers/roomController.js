@@ -5,6 +5,7 @@ import {
   joinRoomByCode,
   inviteUser,
 } from '../services/roomService.js';
+import { validateLicenseOptions } from '../services/licenseService.js';
 
 export async function create(req, res) {
   const { name, visibility, license, latitude, longitude, radiusM, voteStartAt, voteEndAt } = req.body;
@@ -12,6 +13,12 @@ export async function create(req, res) {
   if (!name) return res.status(400).json({ error: 'name est requis' });
 
   const geoOptions = { latitude, longitude, radiusM, voteStartAt, voteEndAt };
+  const licenseCheck = validateLicenseOptions(license ?? 'EVERYONE', geoOptions);
+
+  if (!licenseCheck.valid) {
+    return res.status(400).json({ error: licenseCheck.error });
+  }
+
   const room = await createRoom({ name, visibility, license, ownerId: req.user.id, geoOptions });
 
   return res.status(201).json(room);
