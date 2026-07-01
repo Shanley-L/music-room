@@ -1,4 +1,4 @@
-FROM node:20-bullseye-slim
+FROM docker.io/library/node:20-bullseye-slim
 
 WORKDIR /app
 

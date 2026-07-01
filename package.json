@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "expo-audio": "^56.0.12"
+  }
+}
