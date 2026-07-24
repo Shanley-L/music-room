@@ -3,14 +3,7 @@ services:
     image: docker.io/library/postgres:16-alpine
     restart: unless-stopped
     ports:
-      - target: 5432
-        published: 5433
-        protocol: tcp
-        mode: host
-      - target: 3000
-        published: 3000
-        protocol: tcp
-        mode: host
+      - "5433:5432"
     environment:
       POSTGRES_USER: musicroom
       POSTGRES_PASSWORD: musicroom
@@ -32,15 +25,16 @@ services:
   api:
     build:
       context: ./Api
-    network_mode: "service:postgres"
+    ports:
+      - "3000:3000"
     volumes:
       - ./Api:/usr/src/app
       - /usr/src/app/node_modules
     environment:
       - NODE_ENV=development
       - CHOKIDAR_USEPOLLING=true
-      - DATABASE_URL=postgresql://musicroom:musicroom@127.0.0.1:5432/musicroom
-      - REDIS_URL=redis://127.0.0.1:6379
+      - DATABASE_URL=postgresql://musicroom:musicroom@postgres:5432/musicroom
+      - REDIS_URL=redis://redis:6379
     depends_on:
       postgres:
         condition: service_healthy
