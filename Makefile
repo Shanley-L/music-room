@@ -1,4 +1,4 @@
-.PHONY: up down re build logs status api-health api-test db-push api-test-license
+.PHONY: up down re build logs status api-health api-test db-push api-test-license api-test-ws api-test-ws-gateway api-test-ws-cluster
 
 COMPOSE = docker compose -f docker-compose.yml
 
@@ -40,3 +40,12 @@ api-test-license:
 	  .then(r=>r.json()).then(room=>fetch('http://127.0.0.1:3000/api/rooms/'+room.id+'/tracks',{method:'POST',headers:h,body:JSON.stringify({externalId:'1',title:'A',artist:'B'})}).then(()=>room))\
 	  .then(room=>fetch('http://127.0.0.1:3000/api/rooms/'+room.id+'/tracks',{method:'GET',headers:h}).then(r=>r.json()).then(tracks=>fetch('http://127.0.0.1:3000/api/rooms/'+room.id+'/tracks/'+tracks[0].id+'/vote',{method:'POST',headers:h})))\
 	  .then(r=>r.json().then(d=>console.log('bob sans invite:',d)))"
+
+api-test-ws:
+	$(COMPOSE) exec api node scripts/ws-smoke.js
+
+api-test-ws-gateway:
+	$(COMPOSE) exec api node scripts/gateway-smoke.js
+
+api-test-ws-cluster:
+	$(COMPOSE) exec api node scripts/ws-cluster-smoke.js
