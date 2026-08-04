@@ -88,9 +88,16 @@ export async function unvote(req, res) {
 
   if (!(await checkVotePermission(req, res, room))) return;
 
-  const result = await removeVote(req.params.roomId, req.params.trackId, req.user.id);
+  try {
+    const result = await removeVote(req.params.roomId, req.params.trackId, req.user.id);
 
-  if (result.error) return res.status(result.status).json({ error: result.error });
+    if (result.error) return res.status(result.status).json({ error: result.error });
 
-  return res.json({ queue: result.queue });
+    return res.json({ queue: result.queue });
+  } catch (err) {
+    if (err.message === 'CONFLICT') {
+      return res.status(409).json({ error: 'Conflit de vote, réessayez' });
+    }
+    throw err;
+  }
 }
