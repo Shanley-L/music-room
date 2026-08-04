@@ -41,3 +41,10 @@ app-example
 # generated native folders
 /ios
 /android
+
+# AI generated files
+.agents/
+.claude/
+.opencode/
+_bmad-output/
+_bmad/
