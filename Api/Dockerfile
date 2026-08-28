@@ -10,6 +10,8 @@ RUN npm ci --no-audit --prefer-offline
 
 COPY . .
 
+RUN npx prisma generate
+
 EXPOSE 3000
 
 CMD ["npm", "run dev"]
