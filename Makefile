@@ -1,4 +1,4 @@
-.PHONY: up down re build logs status
+.PHONY: up down re fclean build logs status
 
 COMPOSE = docker compose -f docker-compose.yml
 
@@ -8,9 +8,13 @@ up:
 down:
 	$(COMPOSE) down
 
-re:
-	-$(COMPOSE) down -v
-	
+fclean:
+	-$(COMPOSE) down -v --remove-orphans
+	-$(COMPOSE) rm -f
+	docker volume prune -f
+	docker image prune -f
+
+re: fclean
 	$(MAKE) up
 
 build:
