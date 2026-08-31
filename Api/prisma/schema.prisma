@@ -81,3 +81,61 @@ model Vote {
 
   @@unique([trackId, userId])
 }
+enum PlaylistVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum PlaylistEditLicense {
+  EVERYONE
+  INVITED_ONLY
+}
+
+model Playlist {
+  id          String              @id @default(cuid())
+  name        String
+  description String?
+  visibility  PlaylistVisibility  @default(PUBLIC)
+  license     PlaylistEditLicense @default(EVERYONE)
+  inviteCode  String?             @unique
+  coverUrl    String?
+  version     Int                 @default(0)
+
+  ownerId     String              @default("anonymous")
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  tracks      PlaylistTrack[]
+  invites     PlaylistInvite[]
+}
+
+model PlaylistTrack {
+  id         String   @id @default(cuid())
+  playlistId String
+  playlist   Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+
+  externalId String
+  title      String
+  artist     String
+  album      String?
+  coverUrl   String?
+  preview    String?
+  duration   Int?
+
+  position   Int
+  addedBy    String   @default("anonymous")
+  createdAt  DateTime @default(now())
+
+  @@index([playlistId, position])
+}
+
+model PlaylistInvite {
+  id         String   @id @default(cuid())
+  playlistId String
+  playlist   Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  userId     String
+  canEdit    Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  @@unique([playlistId, userId])
+}

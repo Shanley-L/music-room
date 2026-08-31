@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import { useAudioPlayer } from 'expo-audio';
+import { useAudio } from '../../contexts/AudioContext';
+import { AddToPlaylistModal } from '../../components/AddToPlaylistModal';
+import { Ionicons } from '@expo/vector-icons';
 import {
   View,
   Text,
@@ -10,7 +12,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 
-type DeezerTrack = {
+export type DeezerTrack = {
   id: number;
   title: string;
   preview: string;
@@ -27,32 +29,15 @@ type DeezerTrack = {
 export default function HomeScreen() {
   const [tracks, setTracks] = useState<DeezerTrack[]>([]);
   const [loading, setLoading] = useState(true);
-  const [trackUrl, setTrackUrl] = useState<string>('');
+  const [selectedTrackForPlaylist, setSelectedTrackForPlaylist] = useState<DeezerTrack | null>(null);
 
-  const player = useAudioPlayer(trackUrl);
-
-  const playSong = (url: string) => {
-    console.log(url);
-    if (player.playing) {
-      player.pause();
-    } else if (!player.playing) {
-      player.play();
-    }
-    setTrackUrl(url);
-  };
-
-  useEffect(() => {
-    if (trackUrl) {
-      player.play();
-    }
-  }, [trackUrl])
+  const { currentTrack, playTrack } = useAudio();
 
   useEffect(() => {
     async function loadDiscover() {
       try {
         const response = await fetch('http://localhost:3000/api/deezer/discover');
         const json = await response.json();
-
         setTracks(json.response?.tracks?.data || []);
       } catch (error) {
         console.log(error);
@@ -74,34 +59,52 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Populaire du moment</Text>
+      <Text style={styles.headerTitle}>Populaire du moment</Text>
 
       <FlatList
         data={tracks}
         keyExtractor={(item) => item.id.toString()}
         numColumns={2}
         columnWrapperStyle={styles.row}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[
+          styles.listContent,
+          currentTrack && { paddingBottom: 90 },
+        ]}
         renderItem={({ item }) => (
-          <Pressable onPress={() => playSong(item.preview)} style={styles.card}>
-            <Image
-              source={{ uri: item.album.cover_medium }}
-              style={styles.cover}
-            />
-
+          <Pressable onPress={() => playTrack(item)} style={styles.card}>
+            <View style={styles.coverWrapper}>
+              <Image
+                source={{ uri: item.album.cover_medium }}
+                style={styles.cover}
+              />
+              <Pressable
+                style={styles.addToPlaylistBtn}
+                onPress={() => setSelectedTrackForPlaylist(item)}
+                hitSlop={6}
+              >
+                <Ionicons name="add" size={16} color="#fff" />
+              </Pressable>
+            </View>
             <Text style={styles.trackTitle} numberOfLines={1}>
               {item.title}
             </Text>
-
             <Text style={styles.artistName} numberOfLines={1}>
               {item.artist.name}
             </Text>
           </Pressable>
         )}
       />
+
+      {/* Add To Playlist Modal */}
+      <AddToPlaylistModal
+        visible={!!selectedTrackForPlaylist}
+        track={selectedTrackForPlaylist}
+        onClose={() => setSelectedTrackForPlaylist(null)}
+      />
     </View>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: {
@@ -116,7 +119,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  title: {
+  headerTitle: {
     color: '#fff',
     fontSize: 24,
     fontWeight: '700',
@@ -135,11 +138,29 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 12,
   },
-  cover: {
+  coverWrapper: {
+    position: 'relative',
     width: '100%',
     aspectRatio: 1,
-    borderRadius: 12,
     marginBottom: 10,
+  },
+  cover: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 12,
+  },
+  addToPlaylistBtn: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
   },
   trackTitle: {
     color: '#fff',

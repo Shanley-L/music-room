@@ -48,6 +48,8 @@ services:
       - /app/node_modules
     environment:
       - EXPO_DEBUG=true
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
     tty: true
     command: npm start
 

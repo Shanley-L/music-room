@@ -1,8 +1,5 @@
-import { useEffect } from 'react';
-import { useRouter } from 'expo-router';
+import { Redirect } from 'expo-router';
 
-const router = useRouter()
-
-useEffect(() => {
-  router.replace('/loader');
-}, [useRouter]);
+export default function Index() {
+  return <Redirect href="/loader" />;
+}
