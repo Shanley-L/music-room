@@ -11,8 +11,8 @@ import {
   Keyboard,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
-import { MediaController } from '../../components/mediaController';
+import { useAudio } from '../../contexts/AudioContext';
+import { AddToPlaylistModal } from '../../components/AddToPlaylistModal';
 import { DeezerTrack } from './home';
 
 export default function SearchScreen() {
@@ -20,35 +20,12 @@ export default function SearchScreen() {
   const [results, setResults] = useState<DeezerTrack[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
-  const [currentTrack, setCurrentTrack] = useState<DeezerTrack | null>(null);
+  const [selectedTrackForPlaylist, setSelectedTrackForPlaylist] = useState<DeezerTrack | null>(null);
 
-  const player = useAudioPlayer(currentTrack?.preview || null);
-  const status = useAudioPlayerStatus(player);
-  const isPlaying = status.playing;
+  const { currentTrack, isPlaying, playTrack } = useAudio();
 
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const togglePlay = () => {
-    if (isPlaying) {
-      player.pause();
-    } else {
-      player.play();
-    }
-  };
-
-  const playSong = (track: DeezerTrack) => {
-    if (currentTrack?.id === track.id) {
-      togglePlay();
-    } else {
-      setCurrentTrack(track);
-    }
-  };
-
-  useEffect(() => {
-    if (currentTrack?.preview) {
-      player.play();
-    }
-  }, [currentTrack]);
 
   const performSearch = async (searchTerm: string) => {
     const trimmed = searchTerm.trim();
@@ -175,12 +152,30 @@ export default function SearchScreen() {
                   </Text>
                 </View>
 
-                <View style={styles.playIconContainer}>
-                  <Ionicons
-                    name={isThisTrackPlaying ? 'pause-circle' : 'play-circle-outline'}
-                    size={28}
-                    color={currentTrack?.id === item.id ? '#652edc' : '#888'}
-                  />
+                {/* Actions: Add to playlist + Play/Pause */}
+                <View style={styles.actionsContainer}>
+                  <Pressable
+                    onPress={(e) => {
+                      e.stopPropagation?.();
+                      setSelectedTrackForPlaylist(item);
+                    }}
+                    hitSlop={6}
+                    style={styles.actionBtn}
+                  >
+                    <Ionicons name="add-circle-outline" size={24} color="#aaa" />
+                  </Pressable>
+
+                  <Pressable
+                    onPress={() => playTrack(item)}
+                    hitSlop={6}
+                    style={styles.actionBtn}
+                  >
+                    <Ionicons
+                      name={isThisTrackPlaying ? 'pause-circle' : 'play-circle-outline'}
+                      size={28}
+                      color={currentTrack?.id === item.id ? '#652edc' : '#888'}
+                    />
+                  </Pressable>
                 </View>
               </Pressable>
             );
@@ -210,14 +205,12 @@ export default function SearchScreen() {
         </View>
       )}
 
-      {/* Floating Media Controller */}
-      {currentTrack && (
-        <MediaController
-          track={currentTrack}
-          isPlaying={isPlaying}
-          onTogglePlay={togglePlay}
-        />
-      )}
+      {/* Add To Playlist Modal */}
+      <AddToPlaylistModal
+        visible={!!selectedTrackForPlaylist}
+        track={selectedTrackForPlaylist}
+        onClose={() => setSelectedTrackForPlaylist(null)}
+      />
     </View>
   );
 }
@@ -301,8 +294,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 4,
   },
-  playIconContainer: {
-    paddingHorizontal: 4,
+  actionsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  actionBtn: {
+    padding: 4,
   },
   centerContainer: {
     flex: 1,
@@ -336,3 +334,4 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
 });
+

@@ -6,13 +6,15 @@ export function MediaController({
   track,
   isPlaying,
   onTogglePlay,
+  bottom = 68,
 }: {
   track: DeezerTrack;
   isPlaying: boolean;
   onTogglePlay: () => void;
+  bottom?: number;
 }) {
   return (
-    <View style={styles.controller}>
+    <View style={[styles.controller, { bottom }]}>
       <Image source={{ uri: track.album.cover_medium }} style={styles.cover} />
       
       <View style={styles.info}>
@@ -39,7 +41,6 @@ export function MediaController({
 const styles = StyleSheet.create({
   controller: {
     position: 'absolute',
-    bottom: 12,
     left: 16,
     right: 16,
     backgroundColor: '#282828',

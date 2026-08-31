@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
-import { MediaController } from '../../components/mediaController';
+import { useAudio } from '../../contexts/AudioContext';
+import { AddToPlaylistModal } from '../../components/AddToPlaylistModal';
+import { Ionicons } from '@expo/vector-icons';
 import {
   View,
   Text,
@@ -28,34 +29,9 @@ export type DeezerTrack = {
 export default function HomeScreen() {
   const [tracks, setTracks] = useState<DeezerTrack[]>([]);
   const [loading, setLoading] = useState(true);
-  const [currentTrack, setCurrentTrack] = useState<DeezerTrack | null>(null);
+  const [selectedTrackForPlaylist, setSelectedTrackForPlaylist] = useState<DeezerTrack | null>(null);
 
-  const player = useAudioPlayer(currentTrack?.preview || null);
-  const status = useAudioPlayerStatus(player);
-
-  const isPlaying = status.playing;
-
-  const togglePlay = () => {
-    if (isPlaying) {
-      player.pause();
-    } else {
-      player.play();
-    }
-  };
-
-  const playSong = (track: DeezerTrack) => {
-    if (currentTrack?.id === track.id) {
-      togglePlay();
-    } else {
-      setCurrentTrack(track);
-    }
-  };
-
-  useEffect(() => {
-    if (currentTrack?.preview) {
-      player.play();
-    }
-  }, [currentTrack]);
+  const { currentTrack, playTrack } = useAudio();
 
   useEffect(() => {
     async function loadDiscover() {
@@ -95,11 +71,20 @@ export default function HomeScreen() {
           currentTrack && { paddingBottom: 90 },
         ]}
         renderItem={({ item }) => (
-          <Pressable onPress={() => playSong(item)} style={styles.card}>
-            <Image
-              source={{ uri: item.album.cover_medium }}
-              style={styles.cover}
-            />
+          <Pressable onPress={() => playTrack(item)} style={styles.card}>
+            <View style={styles.coverWrapper}>
+              <Image
+                source={{ uri: item.album.cover_medium }}
+                style={styles.cover}
+              />
+              <Pressable
+                style={styles.addToPlaylistBtn}
+                onPress={() => setSelectedTrackForPlaylist(item)}
+                hitSlop={6}
+              >
+                <Ionicons name="add" size={16} color="#fff" />
+              </Pressable>
+            </View>
             <Text style={styles.trackTitle} numberOfLines={1}>
               {item.title}
             </Text>
@@ -110,16 +95,16 @@ export default function HomeScreen() {
         )}
       />
 
-      {currentTrack && (
-        <MediaController
-          track={currentTrack}
-          isPlaying={isPlaying}
-          onTogglePlay={togglePlay}
-        />
-      )}
+      {/* Add To Playlist Modal */}
+      <AddToPlaylistModal
+        visible={!!selectedTrackForPlaylist}
+        track={selectedTrackForPlaylist}
+        onClose={() => setSelectedTrackForPlaylist(null)}
+      />
     </View>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: {
@@ -153,11 +138,29 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 12,
   },
-  cover: {
+  coverWrapper: {
+    position: 'relative',
     width: '100%',
     aspectRatio: 1,
-    borderRadius: 12,
     marginBottom: 10,
+  },
+  cover: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 12,
+  },
+  addToPlaylistBtn: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
   },
   trackTitle: {
     color: '#fff',
