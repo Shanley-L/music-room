@@ -6,8 +6,8 @@
   "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "nodemon src/server.js",
-    "start": "node src/server.js"
+    "dev": "npx prisma db push && nodemon src/server.js",
+    "start": "npx prisma db push && node src/server.js"
   },
   "keywords": [],
   "author": "",
