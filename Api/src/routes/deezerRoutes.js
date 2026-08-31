@@ -1,8 +1,9 @@
 import express from 'express';
-import { discover } from '../controllers/deezerController.js'
+import { discover, search } from '../controllers/deezerController.js';
 
 const router = express.Router();
 
-router.get('/discover', discover)
+router.get('/discover', discover);
+router.get('/search', search);
 
-export default router
+export default router;

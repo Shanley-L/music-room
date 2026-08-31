@@ -61,7 +61,7 @@
 ## 👤 Personne 3 — Music Playlist Editor + Tests de charge
 
 ### Backend
-- [ ] Intégration **Spotify API** (ou Deezer) — recherche de titres, métadonnées
+- [x] Intégration **Spotify API** (ou Deezer) — recherche de titres, métadonnées
 - [ ] Module `playlists` — création de playlists collaboratives / stations radio
   - [ ] Visibilité **public/privé**
     - [ ] Publique : tout utilisateur y a accès
@@ -73,7 +73,7 @@
 - [ ] WebSocket Gateway — propagation des modifications en temps réel
 
 ### Mobile
-- [ ] Écran recherche de titres (via Spotify/Deezer)
+- [x] Écran recherche de titres (via Spotify/Deezer)
 - [ ] Écran liste de playlists (publiques + privées invité)
 - [ ] Écran éditeur collaboratif (drag & drop, ajout/suppression de titres)
 - [ ] Mises à jour temps réel via WebSocket
