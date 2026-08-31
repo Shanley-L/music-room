@@ -31,9 +31,11 @@ services:
       - DATABASE_URL=postgresql://musicroom:musicroom@postgres:5432/musicroom
       - REDIS_URL=redis://redis:6379
     depends_on:
-      - postgres
-      - redis
-    command: npm run dev
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_started
+    command: sh -c "until npx prisma db push; do echo 'Waiting for database...'; sleep 2; done && npm run dev"
 
   app:
     build:
