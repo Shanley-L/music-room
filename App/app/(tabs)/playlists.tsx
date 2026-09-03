@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { getApiBaseUrl } from '../../lib/apiConfig';
 
 export type Playlist = {
   id: string;
@@ -55,8 +56,8 @@ export default function PlaylistsScreen() {
     try {
       const url =
         activeFilter === 'PRIVATE'
-          ? 'http://localhost:3000/api/playlists?visibility=PRIVATE'
-          : 'http://localhost:3000/api/playlists';
+          ? `${getApiBaseUrl()}/api/playlists?visibility=PRIVATE`
+          : `${getApiBaseUrl()}/api/playlists`;
 
       const response = await fetch(url);
       const data = await response.json();
@@ -87,7 +88,7 @@ export default function PlaylistsScreen() {
 
     setCreating(true);
     try {
-      const res = await fetch('http://localhost:3000/api/playlists', {
+      const res = await fetch(`${getApiBaseUrl()}/api/playlists`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -129,7 +130,7 @@ export default function PlaylistsScreen() {
 
     setJoining(true);
     try {
-      const res = await fetch('http://localhost:3000/api/playlists/join', {
+      const res = await fetch(`${getApiBaseUrl()}/api/playlists/join`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -164,7 +165,17 @@ export default function PlaylistsScreen() {
         <Text style={styles.headerTitle}>Playlists</Text>
         <View style={styles.headerActions}>
           <Pressable
-            style={styles.joinButton}
+            style={styles.headerIconBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Réglages"
+            onPress={() => router.push('/settings')}
+          >
+            <Ionicons name="settings-outline" size={18} color="#aaa" />
+          </Pressable>
+          <Pressable
+            style={styles.headerIconBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Rejoindre une playlist par code"
             onPress={() => setJoinModalVisible(true)}
           >
             <Ionicons name="key-outline" size={18} color="#aaa" />
@@ -557,6 +568,16 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   joinButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#222',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  headerIconBtn: {
     width: 36,
     height: 36,
     borderRadius: 18,

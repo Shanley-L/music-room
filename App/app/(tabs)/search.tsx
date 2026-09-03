@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAudio } from '../../contexts/AudioContext';
 import { AddToPlaylistModal } from '../../components/AddToPlaylistModal';
 import { DeezerTrack } from './home';
+import { getApiBaseUrl } from '../../lib/apiConfig';
 
 export default function SearchScreen() {
   const [query, setQuery] = useState('');
@@ -41,7 +42,7 @@ export default function SearchScreen() {
 
     try {
       const response = await fetch(
-        `http://localhost:3000/api/deezer/search?q=${encodeURIComponent(trimmed)}`
+        `${getApiBaseUrl()}/api/deezer/search?q=${encodeURIComponent(trimmed)}`
       );
       const json = await response.json();
       setResults(json.results || []);

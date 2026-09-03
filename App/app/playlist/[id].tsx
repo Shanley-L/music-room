@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAudio } from '../../contexts/AudioContext';
 import { MediaController } from '../../components/mediaController';
 import { DeezerTrack } from '../(tabs)/home';
+import { getApiBaseUrl } from '../../lib/apiConfig';
 
 export type PlaylistTrackItem = {
   id: string;
@@ -70,7 +71,7 @@ export default function PlaylistEditorScreen() {
   const fetchPlaylist = useCallback(async () => {
     if (!id) return;
     try {
-      const response = await fetch(`http://localhost:3000/api/playlists/${id}`);
+      const response = await fetch(`${getApiBaseUrl()}/api/playlists/${id}`);
       const data = await response.json();
 
       if (!response.ok) {
@@ -121,7 +122,7 @@ export default function PlaylistEditorScreen() {
     setSearching(true);
     try {
       const res = await fetch(
-        `http://localhost:3000/api/deezer/search?q=${encodeURIComponent(term.trim())}`
+        `${getApiBaseUrl()}/api/deezer/search?q=${encodeURIComponent(term.trim())}`
       );
       const json = await res.json();
       setSearchResults(json.results || []);
@@ -149,7 +150,7 @@ export default function PlaylistEditorScreen() {
   const handleAddTrack = async (track: DeezerTrack) => {
     if (!id) return;
     try {
-      const res = await fetch(`http://localhost:3000/api/playlists/${id}/tracks`, {
+      const res = await fetch(`${getApiBaseUrl()}/api/playlists/${id}/tracks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -187,7 +188,7 @@ export default function PlaylistEditorScreen() {
     if (!id) return;
     try {
       const res = await fetch(
-        `http://localhost:3000/api/playlists/${id}/tracks/${trackId}`,
+        `${getApiBaseUrl()}/api/playlists/${id}/tracks/${trackId}`,
         { method: 'DELETE' }
       );
 
@@ -223,7 +224,7 @@ export default function PlaylistEditorScreen() {
     try {
       const trackIds = newTracks.map((t) => t.id);
       const res = await fetch(
-        `http://localhost:3000/api/playlists/${id}/tracks/reorder`,
+        `${getApiBaseUrl()}/api/playlists/${id}/tracks/reorder`,
         {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -290,7 +291,7 @@ export default function PlaylistEditorScreen() {
 
   const executeDelete = async () => {
     try {
-      const res = await fetch(`http://localhost:3000/api/playlists/${id}`, {
+      const res = await fetch(`${getApiBaseUrl()}/api/playlists/${id}`, {
         method: 'DELETE',
       });
       if (!res.ok) {

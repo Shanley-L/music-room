@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAudio } from '../../contexts/AudioContext';
 import { AddToPlaylistModal } from '../../components/AddToPlaylistModal';
 import { Ionicons } from '@expo/vector-icons';
+import { getApiBaseUrl } from '../../lib/apiConfig';
 import {
   View,
   Text,
@@ -36,7 +37,7 @@ export default function HomeScreen() {
   useEffect(() => {
     async function loadDiscover() {
       try {
-        const response = await fetch('http://localhost:3000/api/deezer/discover');
+        const response = await fetch(`${getApiBaseUrl()}/api/deezer/discover`);
         const json = await response.json();
         setTracks(json.response?.tracks?.data || []);
       } catch (error) {

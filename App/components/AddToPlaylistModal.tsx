@@ -14,6 +14,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { DeezerTrack } from '../app/(tabs)/home';
 import { Playlist } from '../app/(tabs)/playlists';
+import { getApiBaseUrl } from '../lib/apiConfig';
 
 export function AddToPlaylistModal({
   visible,
@@ -33,7 +34,7 @@ export function AddToPlaylistModal({
   useEffect(() => {
     if (visible) {
       setLoading(true);
-      fetch('http://localhost:3000/api/playlists')
+      fetch(`${getApiBaseUrl()}/api/playlists`)
         .then((res) => res.json())
         .then((data) => setPlaylists(data.playlists || []))
         .catch((err) => console.log('Error fetching playlists:', err))
@@ -46,7 +47,7 @@ export function AddToPlaylistModal({
 
     setAddingId(playlist.id);
     try {
-      const res = await fetch(`http://localhost:3000/api/playlists/${playlist.id}/tracks`, {
+      const res = await fetch(`${getApiBaseUrl()}/api/playlists/${playlist.id}/tracks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
