@@ -4,8 +4,11 @@
   "description": "",
   "main": "index.js",
   "type": "module",
+  "engines": {
+    "node": ">=22.14"
+  },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --experimental-test-module-mocks --test \"test/*.test.js\"",
     "dev": "npx prisma db push && nodemon src/server.js",
     "start": "npx prisma db push && node src/server.js"
   },
@@ -15,13 +18,17 @@
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
+    "@socket.io/redis-adapter": "^8.3.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "ioredis": "^6.0.0",
     "pg": "^8.21.0",
-    "prisma": "^7.8.0"
+    "prisma": "^7.8.0",
+    "socket.io": "^4.8.3"
   },
   "devDependencies": {
-    "nodemon": "^3.1.14"
+    "nodemon": "^3.1.14",
+    "socket.io-client": "^4.8.3"
   }
 }

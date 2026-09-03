@@ -1,5 +1,24 @@
 import prisma from '../lib/prisma.js';
 
+export async function getRoomSnapshot(roomId) {
+  const room = await prisma.room.findUnique({ where: { id: roomId } });
+
+  if (!room) return null;
+
+  const queue = await prisma.track.findMany({
+    where: { roomId },
+    orderBy: [{ voteCount: 'desc' }, { createdAt: 'asc' }, { id: 'asc' }],
+    include: { _count: { select: { votes: true } } },
+  });
+
+  return {
+    queue,
+    topTrack: queue[0] ?? null,
+    nowPlayingBy: room.nowPlayingBy ?? room.ownerId,
+    isClosed: room.isClosed,
+  };
+}
+
 export async function getTracksForRoom(roomId) {
   return prisma.track.findMany({
     where: { roomId },

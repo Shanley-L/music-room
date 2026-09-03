@@ -36,6 +36,7 @@ export async function createRoom({ name, visibility, license, ownerId, geoOption
     license: license ?? 'EVERYONE',
     inviteCode,
     ownerId,
+    nowPlayingBy: ownerId,
     ...geoOptions,
   };
 

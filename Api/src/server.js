@@ -1,3 +1,4 @@
+import http from 'http';
 import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
@@ -5,6 +6,9 @@ import deezerRoutes from './routes/deezerRoutes.js';
 import playlistRoutes from './routes/playlistRoutes.js';
 import roomRoutes from './routes/roomRoutes.js';
 import trackRoutes from './routes/trackRoutes.js';
+import { initSocket } from './lib/socket.js';
+import { socketAuthMiddleware } from './middleware/auth.js';
+import { registerRoomGateway } from './gateways/roomGateway.js';
 
 dotenv.config();
 
@@ -22,7 +26,10 @@ app.use('/api/rooms/:roomId/tracks', trackRoutes);
 
 const port = process.env.PORT || 3000;
 
-app.listen(port, () => console.log(`API listening on ${port}`));
+const httpServer = http.createServer(app);
 
+const io = await initSocket(httpServer);
+io.use(socketAuthMiddleware);
+registerRoomGateway(io);
 
-
+httpServer.listen(port, () => console.log(`API listening on ${port}`));
