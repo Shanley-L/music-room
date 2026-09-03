@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAudio } from '../../contexts/AudioContext';
 import { AddToPlaylistModal } from '../../components/AddToPlaylistModal';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { getApiBaseUrl } from '../../lib/apiConfig';
 import {
   View,
@@ -28,6 +29,7 @@ export type DeezerTrack = {
 };
 
 export default function HomeScreen() {
+  const router = useRouter();
   const [tracks, setTracks] = useState<DeezerTrack[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTrackForPlaylist, setSelectedTrackForPlaylist] = useState<DeezerTrack | null>(null);
@@ -61,6 +63,21 @@ export default function HomeScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.headerTitle}>Populaire du moment</Text>
+
+      <Pressable
+        style={styles.createEventButton}
+        onPress={() => router.push('/event/new')}
+        accessibilityRole="button"
+        accessibilityLabel="Créer un événement"
+      >
+        <Ionicons
+          name="add-circle"
+          size={20}
+          color="#fff"
+          style={{ marginRight: 6 }}
+        />
+        <Text style={styles.createEventButtonText}>Créer un événement</Text>
+      </Pressable>
 
       <FlatList
         data={tracks}
@@ -125,6 +142,20 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '700',
     marginBottom: 16,
+  },
+  createEventButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#652edc',
+    borderRadius: 12,
+    paddingVertical: 12,
+    marginBottom: 16,
+  },
+  createEventButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
   listContent: {
     paddingBottom: 24,
