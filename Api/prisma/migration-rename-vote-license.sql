@@ -90,9 +90,12 @@ ALTER TABLE "Room" ALTER COLUMN "license" SET DEFAULT 'EVERYONE';
 COMMIT;
 
 -- ROLLBACK (documenté) :
---   1) Restaurer la valeur dans le schéma Prisma (GEO_TIME_RESTRICTED) puis appliquer :
+--   1) Backfill inverse AVANT l'échange de type (obligatoire : le CAST
+--      `license::text::"VoteLicense_new"` échouerait sur des lignes encore en
+--      'GEO_RESTRICTED', valeur absente de l'enum recréé) :
 --      BEGIN;
 --      LOCK TABLE "Room" IN ACCESS EXCLUSIVE MODE;
+--      UPDATE "Room" SET license = 'GEO_TIME_RESTRICTED' WHERE license::text = 'GEO_RESTRICTED';
 --      DROP TYPE IF EXISTS "VoteLicense_new";
 --      CREATE TYPE "VoteLicense_new" AS ENUM ('EVERYONE', 'INVITED_ONLY', 'GEO_TIME_RESTRICTED');
 --      ALTER TABLE "Room" ALTER COLUMN "license" DROP DEFAULT;
@@ -102,6 +105,5 @@ COMMIT;
 --      DROP TYPE "VoteLicense_old";
 --      ALTER TABLE "Room" ALTER COLUMN "license" SET DEFAULT 'EVERYONE';
 --      COMMIT;
---   2) Backfill inverse des lignes concernées :
---      UPDATE "Room" SET license = 'GEO_TIME_RESTRICTED' WHERE license::text = 'GEO_RESTRICTED';
---   3) Relancer `npx prisma db push` pour resynchroniser.
+--   2) Restaurer la valeur dans le schéma Prisma (GEO_TIME_RESTRICTED) puis relancer
+--      `npx prisma db push` pour resynchroniser.

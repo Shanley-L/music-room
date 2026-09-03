@@ -9,9 +9,14 @@ export async function createRoom({ name, visibility, license, ownerId, geoOption
   const { latitude, longitude, radiusM } = geoOptions ?? {};
 
   if (license === 'GEO_RESTRICTED') {
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    if (
+      !Number.isFinite(latitude) ||
+      !Number.isFinite(longitude) ||
+      Math.abs(latitude) > 90 ||
+      Math.abs(longitude) > 180
+    ) {
       return {
-        error: 'Zone requise pour la licence GEO_RESTRICTED (latitude et longitude numériques obligatoires)',
+        error: 'Zone requise pour la licence GEO_RESTRICTED (latitude dans [-90, 90] et longitude dans [-180, 180] numériques)',
         status: 400,
       };
     }
