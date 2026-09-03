@@ -7,6 +7,8 @@ import {
   StyleSheet,
   Alert,
   Platform,
+  KeyboardAvoidingView,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -75,7 +77,10 @@ export default function SettingsScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
       <View style={styles.navBar}>
         <Pressable
           onPress={() => (router.canGoBack() ? router.back() : router.replace('/home'))}
@@ -88,6 +93,10 @@ export default function SettingsScreen() {
         <View style={styles.navSpacer} />
       </View>
 
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={styles.scrollContent}
+      >
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>Adresse du backend</Text>
         <Text style={styles.sectionHint}>
@@ -139,7 +148,8 @@ export default function SettingsScreen() {
           défaut provient de EXPO_PUBLIC_API_URL (ou localhost:3000).
         </Text>
       </View>
-    </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -148,7 +158,10 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#121212',
     paddingTop: 20,
+  },
+  scrollContent: {
     paddingHorizontal: 16,
+    paddingBottom: 24,
   },
   navBar: {
     flexDirection: 'row',

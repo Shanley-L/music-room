@@ -567,16 +567,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
-  joinButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#222',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#333',
-  },
   headerIconBtn: {
     width: 36,
     height: 36,
