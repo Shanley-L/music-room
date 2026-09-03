@@ -6,18 +6,39 @@ function generateInviteCode() {
 }
 
 export async function createRoom({ name, visibility, license, ownerId, geoOptions }) {
-  const inviteCode = visibility === 'PRIVATE' ? generateInviteCode() : null;
+  const { latitude, longitude, radiusM } = geoOptions ?? {};
 
-  return prisma.room.create({
-    data: {
-      name,
-      visibility: visibility ?? 'PUBLIC',
-      license: license ?? 'EVERYONE',
-      inviteCode,
-      ownerId,
-      ...geoOptions,
-    },
-  });
+  if (license === 'GEO_RESTRICTED') {
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      return {
+        error: 'Zone requise pour la licence GEO_RESTRICTED (latitude et longitude numériques obligatoires)',
+        status: 400,
+      };
+    }
+
+    if (radiusM != null && (!Number.isInteger(radiusM) || radiusM <= 0)) {
+      return {
+        error: 'radiusM doit être un entier strictement positif pour la licence GEO_RESTRICTED',
+        status: 400,
+      };
+    }
+  }
+
+  const inviteCode = visibility === 'PRIVATE' ? generateInviteCode() : null;
+  const data = {
+    name,
+    visibility: visibility ?? 'PUBLIC',
+    license: license ?? 'EVERYONE',
+    inviteCode,
+    ownerId,
+    ...geoOptions,
+  };
+
+  if (data.license === 'GEO_RESTRICTED' && data.radiusM == null) {
+    data.radiusM = 100;
+  }
+
+  return prisma.room.create({ data });
 }
 
 export async function listPublicRooms() {
@@ -52,6 +73,26 @@ export async function joinRoomByCode(inviteCode, userId) {
   if (!alreadyIn) {
     await prisma.roomInvite.create({ data: { roomId: room.id, userId } });
   }
+
+  return { room };
+}
+
+export async function joinRoomById(roomId, userId) {
+  const room = await prisma.room.findUnique({ where: { id: roomId } });
+
+  if (!room) {
+    return { error: 'Salle introuvable', status: 404 };
+  }
+
+  if (room.visibility === 'PRIVATE') {
+    return { error: "Salle privée : rejoignez avec le code d'invitation", status: 403 };
+  }
+
+  await prisma.roomInvite.upsert({
+    where: { roomId_userId: { roomId: room.id, userId } },
+    create: { roomId: room.id, userId },
+    update: {},
+  });
 
   return { room };
 }

@@ -14,7 +14,7 @@ enum RoomVisibility {
 enum VoteLicense {
   EVERYONE
   INVITED_ONLY
-  GEO_TIME_RESTRICTED
+  GEO_RESTRICTED
 }
 
 model Room {

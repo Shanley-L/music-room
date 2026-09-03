@@ -3,6 +3,7 @@ import {
   listPublicRooms,
   getRoomById,
   joinRoomByCode,
+  joinRoomById,
   inviteUser,
 } from '../services/roomService.js';
 
@@ -12,9 +13,11 @@ export async function create(req, res) {
   if (!name) return res.status(400).json({ error: 'name est requis' });
 
   const geoOptions = { latitude, longitude, radiusM, voteStartAt, voteEndAt };
-  const room = await createRoom({ name, visibility, license, ownerId: req.user.id, geoOptions });
+  const result = await createRoom({ name, visibility, license, ownerId: req.user.id, geoOptions });
 
-  return res.status(201).json(room);
+  if (result.error) return res.status(result.status).json({ error: result.error });
+
+  return res.status(201).json(result);
 }
 
 export async function listPublic(req, res) {
@@ -36,6 +39,14 @@ export async function join(req, res) {
   if (!inviteCode) return res.status(400).json({ error: 'inviteCode est requis' });
 
   const result = await joinRoomByCode(inviteCode, req.user.id);
+
+  if (result.error) return res.status(result.status).json({ error: result.error });
+
+  return res.json(result.room);
+}
+
+export async function joinRoom(req, res) {
+  const result = await joinRoomById(req.params.id, req.user.id);
 
   if (result.error) return res.status(result.status).json({ error: result.error });
 
