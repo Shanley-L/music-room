@@ -36,19 +36,19 @@
 ## 👤 Personne 2 — Music Track Vote (temps réel)
 
 ### Backend
-- [ ] Module `rooms` — création de salles, gestion visibilité **public/privé**
-  - [ ] Événement public → tous les utilisateurs peuvent voter
-  - [ ] Événement privé → uniquement les utilisateurs invités
-- [ ] Module `tracks` — suggestions de titres, file de lecture
-- [ ] **Système de vote**
-  - [ ] Vote pour un titre → monte dans la liste
-  - [ ] Gestion des **conflits** (plusieurs votes simultanés sur le même titre ou différents)
-- [ ] **Gestion des licences**
-  - [ ] Par défaut : tout le monde peut voter
-  - [ ] Licence avancée : seuls les invités votent
-  - [ ] Licence avancée : restriction par lieu / plage horaire
-- [ ] **WebSocket Gateway** (Socket.IO) — diffusion des votes en temps réel
-- [ ] Redis Pub/Sub — synchronisation entre utilisateurs
+- [x] Module `rooms` — création de salles, gestion visibilité **public/privé**
+  - [x] Événement public → tous les utilisateurs peuvent voter
+  - [x] Événement privé → uniquement les utilisateurs invités *(forcé via `isUserAllowedInRoom` ; réserve : `GET /rooms/:id` non protégé)*
+- [x] Module `tracks` — suggestions de titres, file de lecture
+- [x] **Système de vote**
+  - [x] Vote pour un titre → monte dans la liste *(re-ordonnancement par `voteCount`)*
+  - [x] Gestion des **conflits** (plusieurs votes simultanés sur le même titre ou différents) *(concurrency optimiste atomique + 409)*
+- [ ] **Gestion des licences** *(partiel : `license` stockée mais jamais appliquée sur les endpoints de vote)*
+  - [x] Par défaut : tout le monde peut voter
+  - [ ] Licence avancée : seuls les invités votent *(non appliquée)*
+  - [ ] Licence avancée : restriction par lieu / plage horaire *(champs geo stockés, jamais appliqués)*
+- [ ] **WebSocket Gateway** (Socket.IO) — diffusion des votes en temps réel *(non implémenté)*
+- [ ] Redis Pub/Sub — synchronisation entre utilisateurs *(déclaré dans docker-compose, jamais utilisé)*
 
 ### Mobile
 - [ ] Écran création d'un événement (nom, visibilité, licence)

@@ -45,7 +45,7 @@ export async function suggestTrack(roomId, userId, trackData) {
 async function reorderQueue(roomId) {
   const tracks = await prisma.track.findMany({
     where: { roomId },
-    orderBy: [{ voteCount: 'desc' }, { createdAt: 'asc' }],
+    orderBy: [{ voteCount: 'desc' }, { createdAt: 'asc' }, { id: 'asc' }],
   });
 
   await prisma.$transaction(
@@ -75,7 +75,10 @@ export async function voteForTrack(roomId, trackId, userId) {
     where: { trackId_userId: { trackId, userId } },
   });
 
-  if (alreadyVoted) return { error: 'Vous avez déjà voté pour ce titre', status: 409 };
+  if (alreadyVoted) {
+    const queue = await reorderQueue(roomId);
+    return { track, queue, alreadyVoted: true };
+  }
 
   const updated = await prisma.$transaction(async (tx) => {
     const current = await tx.track.findUnique({ where: { id: trackId } });
@@ -97,6 +100,23 @@ export async function voteForTrack(roomId, trackId, userId) {
   const queue = await reorderQueue(roomId);
 
   return { track: updated, queue };
+}
+
+export async function deleteTrack(roomId, trackId, userId) {
+  const room = await prisma.room.findUnique({ where: { id: roomId } });
+
+  if (!room) return { error: 'Salle introuvable', status: 404 };
+  if (room.ownerId !== userId) return { error: "Seul l'organisateur peut supprimer un titre", status: 403 };
+
+  const track = await prisma.track.findFirst({ where: { id: trackId, roomId } });
+
+  if (!track) return { error: 'Titre introuvable', status: 404 };
+
+  await prisma.track.delete({ where: { id: trackId } });
+
+  const queue = await reorderQueue(roomId);
+
+  return { queue };
 }
 
 export async function removeVote(roomId, trackId, userId) {

@@ -3,6 +3,7 @@ import {
   suggestTrack,
   voteForTrack,
   removeVote,
+  deleteTrack,
 } from '../services/trackService.js';
 import { getRoomById, isUserAllowedInRoom } from '../services/roomService.js';
 
@@ -59,6 +60,21 @@ export async function vote(req, res) {
     }
     throw err;
   }
+}
+
+export async function remove(req, res) {
+  const room = await checkRoomAccess(req, res);
+  if (!room) return;
+
+  if (room.ownerId !== req.user.id) {
+    return res.status(403).json({ error: "Seul l'organisateur peut supprimer un titre" });
+  }
+
+  const result = await deleteTrack(req.params.roomId, req.params.trackId, req.user.id);
+
+  if (result.error) return res.status(result.status).json({ error: result.error });
+
+  return res.json({ queue: result.queue });
 }
 
 export async function unvote(req, res) {
