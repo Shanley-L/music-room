@@ -79,9 +79,14 @@ export default function NewEventScreen() {
   };
 
   const handleCreate = async () => {
+    if (creating) return;
     const trimmedName = name.trim();
     if (!trimmedName) {
       notify('Erreur', 'Veuillez saisir un nom pour l’événement');
+      return;
+    }
+    if (trimmedName.length > 80) {
+      notify('Erreur', 'Le nom de l’événement ne peut pas dépasser 80 caractères');
       return;
     }
 
@@ -105,8 +110,8 @@ export default function NewEventScreen() {
     let lat: number | undefined;
     let lon: number | undefined;
     if (license === 'GEO_RESTRICTED') {
-      const latStr = latitude.trim();
-      const lonStr = longitude.trim();
+      const latStr = latitude.trim().replace(',', '.');
+      const lonStr = longitude.trim().replace(',', '.');
 
       if (!DECIMAL_RE.test(latStr)) {
         notify('Erreur', 'La latitude doit être un nombre entre -90 et 90.');
@@ -168,6 +173,9 @@ export default function NewEventScreen() {
       }
 
       if (!res.ok) {
+        if (res.status >= 500) {
+          throw new Error('Erreur serveur. Réessayez dans quelques instants.');
+        }
         throw new Error(data.error || 'Erreur lors de la création de la salle');
       }
 
@@ -180,16 +188,18 @@ export default function NewEventScreen() {
         throw new Error('Réponse invalide du serveur');
       }
 
-      setCreatedRoom(data as Room);
+      if (isMountedRef.current) setCreatedRoom(data as Room);
     } catch (err: any) {
-      if (err?.name === 'AbortError') {
-        notify('Erreur', 'Le serveur ne répond pas. Vérifiez votre connexion et réessayez.');
-      } else {
-        notify('Erreur', err?.message || 'Impossible de créer la salle');
+      if (isMountedRef.current) {
+        if (err?.name === 'AbortError') {
+          notify('Erreur', 'Le serveur ne répond pas. Vérifiez votre connexion et réessayez.');
+        } else {
+          notify('Erreur', err?.message || 'Impossible de créer la salle');
+        }
       }
     } finally {
       clearTimeout(timeoutId);
-      setCreating(false);
+      if (isMountedRef.current) setCreating(false);
     }
   };
 
@@ -198,23 +208,34 @@ export default function NewEventScreen() {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        notify(
-          'Autorisation de localisation refusée',
-          'Vous pouvez saisir manuellement la latitude et la longitude de la zone.'
-        );
+        if (isMountedRef.current) {
+          notify(
+            'Autorisation de localisation refusée',
+            'Vous pouvez saisir manuellement la latitude et la longitude de la zone.'
+          );
+        }
         return;
       }
 
-      const position = await Location.getCurrentPositionAsync({});
-      setLatitude(position.coords.latitude.toFixed(5));
-      setLongitude(position.coords.longitude.toFixed(5));
+      const position = await Promise.race([
+        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('timeout')), 10000)
+        ),
+      ]);
+      if (isMountedRef.current) {
+        setLatitude(position.coords.latitude.toFixed(5));
+        setLongitude(position.coords.longitude.toFixed(5));
+      }
     } catch {
-      notify(
-        'Erreur',
-        'Impossible d’obtenir votre position. Saisissez la latitude et la longitude manuellement.'
-      );
+      if (isMountedRef.current) {
+        notify(
+          'Erreur',
+          'Impossible d’obtenir votre position. Saisissez la latitude et la longitude manuellement.'
+        );
+      }
     } finally {
-      setLocating(false);
+      if (isMountedRef.current) setLocating(false);
     }
   };
 
@@ -351,6 +372,7 @@ export default function NewEventScreen() {
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}
     >
       <View style={styles.navBar}>
         <Pressable
@@ -378,6 +400,7 @@ export default function NewEventScreen() {
             placeholderTextColor="#666"
             value={name}
             onChangeText={setName}
+            maxLength={80}
           />
 
           <Text style={styles.inputLabel}>Visibilité</Text>
@@ -533,7 +556,8 @@ export default function NewEventScreen() {
                 onPress={handleLocate}
                 disabled={locating}
                 accessibilityRole="button"
-                accessibilityLabel="Me localiser"
+                accessibilityLabel={locating ? 'Localisation en cours' : 'Me localiser'}
+                accessibilityState={{ disabled: locating }}
               >
                 {locating ? (
                   <ActivityIndicator color="#fff" size="small" />
@@ -572,6 +596,7 @@ export default function NewEventScreen() {
                     keyboardType={geoKeyboardType}
                     autoCapitalize="none"
                     autoCorrect={false}
+                    maxLength={12}
                   />
                 </View>
                 <View style={styles.geoInputCol}>
@@ -585,6 +610,7 @@ export default function NewEventScreen() {
                     keyboardType={geoKeyboardType}
                     autoCapitalize="none"
                     autoCorrect={false}
+                    maxLength={12}
                   />
                 </View>
               </View>
@@ -595,7 +621,8 @@ export default function NewEventScreen() {
               <Text style={styles.geoHint}>
                 Rayon paramétrable entre {RADIUS_MIN} et {RADIUS_MAX} m (défaut{' '}
                 {RADIUS_DEFAULT} m). La position est pré-remplie via « Me
-                localiser » ou saisie manuellement.
+                localiser » ou saisie manuellement. Décimales avec point ou
+                virgule.
               </Text>
             </View>
           )}
@@ -605,6 +632,8 @@ export default function NewEventScreen() {
             onPress={handleCreate}
             disabled={creating}
             accessibilityRole="button"
+            accessibilityLabel={creating ? 'Création en cours' : 'Créer la salle'}
+            accessibilityState={{ disabled: creating }}
           >
             {creating ? (
               <ActivityIndicator color="#fff" size="small" />
