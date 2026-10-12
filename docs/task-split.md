@@ -7,29 +7,29 @@
 ## 👤 Personne 1 — Auth + Sécurité + Infrastructure
 
 ### Backend
-- [ ] Bootstrap NestJS (structure modulaire, Prisma ORM, connexion PostgreSQL/Redis)
-- [ ] Module `auth`
-  - [ ] Inscription / Connexion email + mot de passe
-  - [ ] OAuth2 : Google + Facebook
-  - [ ] JWT (access token court + refresh token)
-  - [ ] Blacklist de tokens dans Redis
-- [ ] Module `users` — profil, préférences, données publiques/privées
-- [ ] **Sécurité obligatoire**
-  - [ ] Rate limiting sur les endpoints sensibles (bruteforce)
-  - [ ] Guards JWT sur toutes les routes protégées
-  - [ ] Validation des inputs (class-validator)
-- [ ] **Logs obligatoires** pour chaque action : plateforme, appareil, version de l'app
-- [ ] Documentation **Swagger / OpenAPI** (partagée avec toute l'équipe)
+- [x] Architecture Express (structure modulaire, Prisma ORM, connexion PostgreSQL/Redis)
+- [x] Module `auth`
+  - [x] Inscription / Connexion email + mot de passe
+  - [x] OAuth2 : Google
+  - [x] JWT (access token court + refresh token)
+  - [x] Blacklist de tokens dans Redis
+- [x] Module `users` — profil, préférences, données publiques/privées
+- [x] **Sécurité obligatoire**
+  - [x] Rate limiting sur les endpoints sensibles (bruteforce)
+  - [x] Guards/middlewares JWT sur toutes les routes protégées
+  - [x] Validation des inputs & gestion d'erreurs
+- [x] **Logs obligatoires** pour chaque action : plateforme, appareil, version de l'app (console + table `SystemLog`)
+- [x] Documentation **Swagger / OpenAPI** (/api-docs et /api-docs.json)
 
 ### Mobile
-- [ ] Navigation globale (React Navigation — Stack + Tab)
-- [ ] Écran Login / Register
-- [ ] Connexion OAuth (Google + Facebook)
-- [ ] Écran profil utilisateur
-- [ ] **Adresse du backend configurable** dans l'app (exigence du sujet)
+- [x] Navigation globale (Expo Router — Tabs + Auth Stack)
+- [x] Écran Login / Register avec validation email
+- [x] Connexion OAuth (Google)
+- [x] Écran profil utilisateur (public, amis, privé, préférences musicales, liaison OAuth Google)
+- [x] **Adresse du backend configurable** dans l'app (modal sur login et profil + `useApiConfig`)
 
 ### Priorité
-> ⚠️ À livrer **en premier** — les deux autres personnes en ont besoin pour protéger leurs routes.
+> ✅ **Terminé** — Authentification, sécurité, logs et configuration mobile opérationnels.
 
 ---
 

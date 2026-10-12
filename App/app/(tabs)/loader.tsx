@@ -1,37 +1,39 @@
-import { Text, View, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import Loader from '@/components/loader';
-
 import { useRouter } from 'expo-router';
-
-
 import { useEffect } from 'react';
+import { useAuth } from '../../contexts/AuthContext';
 
 export default function Index() {
-    const router = useRouter()
+  const router = useRouter();
+  const { user, isLoading } = useAuth();
 
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            router.replace('/home')
-        }, 1000)
+  useEffect(() => {
+    if (isLoading) return;
 
-        return () => clearTimeout(timer)
-    }, [router])
+    const timer = setTimeout(() => {
+      if (user) {
+        router.replace('/home');
+      } else {
+        router.replace('/login');
+      }
+    }, 700);
 
-    return (
-        <View style={styles.container}>
-            <Loader />
-        </View>
-    );
+    return () => clearTimeout(timer);
+  }, [isLoading, user, router]);
+
+  return (
+    <View style={styles.container}>
+      <Loader />
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#25292e',
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    text: {
-        color: '#fff',
-    },
+  container: {
+    flex: 1,
+    backgroundColor: '#121212',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

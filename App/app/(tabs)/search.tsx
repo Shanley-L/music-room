@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAudio } from '../../contexts/AudioContext';
+import { useApiConfig } from '../../contexts/ApiConfigContext';
 import { AddToPlaylistModal } from '../../components/AddToPlaylistModal';
 import { DeezerTrack } from './home';
 
@@ -23,8 +24,9 @@ export default function SearchScreen() {
   const [selectedTrackForPlaylist, setSelectedTrackForPlaylist] = useState<DeezerTrack | null>(null);
 
   const { currentTrack, isPlaying, playTrack } = useAudio();
+  const { apiFetch } = useApiConfig();
 
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const searchTimeoutRef = useRef<any>(null);
 
 
   const performSearch = async (searchTerm: string) => {
@@ -40,8 +42,8 @@ export default function SearchScreen() {
     setHasSearched(true);
 
     try {
-      const response = await fetch(
-        `http://localhost:3000/api/deezer/search?q=${encodeURIComponent(trimmed)}`
+      const response = await apiFetch(
+        `/api/deezer/search?q=${encodeURIComponent(trimmed)}`
       );
       const json = await response.json();
       setResults(json.results || []);
@@ -126,7 +128,7 @@ export default function SearchScreen() {
             const isThisTrackPlaying = currentTrack?.id === item.id && isPlaying;
             return (
               <Pressable
-                onPress={() => playSong(item)}
+                onPress={() => playTrack(item)}
                 style={({ pressed }) => [
                   styles.trackRow,
                   currentTrack?.id === item.id && styles.activeTrackRow,
