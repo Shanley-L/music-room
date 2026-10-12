@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAudio } from '../../contexts/AudioContext';
+import { useApiConfig } from '../../contexts/ApiConfigContext';
 import { AddToPlaylistModal } from '../../components/AddToPlaylistModal';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -32,11 +33,12 @@ export default function HomeScreen() {
   const [selectedTrackForPlaylist, setSelectedTrackForPlaylist] = useState<DeezerTrack | null>(null);
 
   const { currentTrack, playTrack } = useAudio();
+  const { apiFetch } = useApiConfig();
 
   useEffect(() => {
     async function loadDiscover() {
       try {
-        const response = await fetch('http://localhost:3000/api/deezer/discover');
+        const response = await apiFetch('/api/deezer/discover');
         const json = await response.json();
         setTracks(json.response?.tracks?.data || []);
       } catch (error) {

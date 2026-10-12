@@ -139,3 +139,54 @@ model PlaylistInvite {
 
   @@unique([playlistId, userId])
 }
+
+model User {
+  id                   String         @id @default(cuid())
+  email                String         @unique
+  password             String?
+  name                 String
+  avatarUrl            String?
+  isEmailVerified      Boolean        @default(false)
+  verificationCode     String?
+  resetPasswordCode    String?
+  resetPasswordExpires DateTime?
+  googleId             String?        @unique
+  facebookId           String?        @unique
+
+  // Profile data according to subject
+  bio                  String?
+  friendsInfo          String?
+  privateInfo          String?
+  musicPreferences     String?
+
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  refreshTokens        RefreshToken[]
+  logs                 SystemLog[]
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  revoked   Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model SystemLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action     String
+  method     String
+  endpoint   String
+  platform   String?
+  device     String?
+  appVersion String?
+  ip         String?
+  statusCode Int?
+  createdAt  DateTime @default(now())
+}

@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useApiConfig } from '../../contexts/ApiConfigContext';
 
 export type Playlist = {
   id: string;
@@ -32,6 +33,7 @@ export type Playlist = {
 
 export default function PlaylistsScreen() {
   const router = useRouter();
+  const { apiFetch } = useApiConfig();
 
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [loading, setLoading] = useState(true);
@@ -55,10 +57,10 @@ export default function PlaylistsScreen() {
     try {
       const url =
         activeFilter === 'PRIVATE'
-          ? 'http://localhost:3000/api/playlists?visibility=PRIVATE'
-          : 'http://localhost:3000/api/playlists';
+          ? '/api/playlists?visibility=PRIVATE'
+          : '/api/playlists';
 
-      const response = await fetch(url);
+      const response = await apiFetch(url);
       const data = await response.json();
       setPlaylists(data.playlists || []);
     } catch (error) {
@@ -87,9 +89,8 @@ export default function PlaylistsScreen() {
 
     setCreating(true);
     try {
-      const res = await fetch('http://localhost:3000/api/playlists', {
+      const res = await apiFetch('/api/playlists', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: newTitle.trim(),
           description: newDesc.trim() || undefined,
@@ -129,9 +130,8 @@ export default function PlaylistsScreen() {
 
     setJoining(true);
     try {
-      const res = await fetch('http://localhost:3000/api/playlists/join', {
+      const res = await apiFetch('/api/playlists/join', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           inviteCode: joinCode.trim().toUpperCase(),
           userId: 'anonymous_user',
