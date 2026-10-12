@@ -6,6 +6,31 @@ datasource db {
   provider = "postgresql"
 }
 
+model User {
+  id              String   @id @default(cuid())
+  email           String   @unique
+  passwordHash    String?  // Nullable for OAuth users
+  googleId        String?  @unique
+  facebookId      String?  @unique
+  isEmailVerified Boolean  @default(false)
+
+  publicBio       String?
+  friendsOnlyBio  String?
+  privateNotes    String?
+  musicPrefs      String[] 
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  rooms           Room[]
+  roomInvites     RoomInvite[]
+  suggestedTracks Track[]
+  votes           Vote[]
+  playlists       Playlist[]
+  playlistTracks  PlaylistTrack[]
+  playlistInvites PlaylistInvite[]
+}
+
 enum RoomVisibility {
   PUBLIC
   PRIVATE
@@ -30,43 +55,50 @@ model Room {
   voteStartAt DateTime?
   voteEndAt   DateTime?
 
-  ownerId   String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  ownerId     String
+  owner       User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
 
-  invites RoomInvite[]
-  tracks  Track[]
+  invites     RoomInvite[]
+  tracks      Track[]
 }
 
 model RoomInvite {
   id        String   @id @default(cuid())
   roomId    String
   room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  
   userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
   createdAt DateTime @default(now())
 
   @@unique([roomId, userId])
 }
 
 model Track {
-  id         String  @id @default(cuid())
-  roomId     String
-  room       Room    @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  externalId String
-  title      String
-  artist     String
-  album      String?
-  preview    String?
-  duration   Int?
+  id          String   @id @default(cuid())
+  roomId      String
+  room        Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  externalId  String
+  title       String
+  artist      String
+  album       String?
+  preview     String?
+  duration    Int?
 
-  voteCount   Int @default(0)
-  version     Int @default(0)
+  voteCount   Int      @default(0)
+  version     Int      @default(0)
   position    Int
 
   suggestedBy String
+  user        User     @relation(fields: [suggestedBy], references: [id], onDelete: Cascade)
+  
   createdAt   DateTime @default(now())
 
-  votes Vote[]
+  votes       Vote[]
 
   @@unique([roomId, externalId])
   @@index([roomId, position])
@@ -76,11 +108,15 @@ model Vote {
   id        String   @id @default(cuid())
   trackId   String
   track     Track    @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  
   userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
   createdAt DateTime @default(now())
 
   @@unique([trackId, userId])
 }
+
 enum PlaylistVisibility {
   PUBLIC
   PRIVATE
@@ -101,7 +137,9 @@ model Playlist {
   coverUrl    String?
   version     Int                 @default(0)
 
-  ownerId     String              @default("anonymous")
+  ownerId     String
+  owner       User                @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  
   createdAt   DateTime            @default(now())
   updatedAt   DateTime            @updatedAt
 
@@ -123,7 +161,11 @@ model PlaylistTrack {
   duration   Int?
 
   position   Int
-  addedBy    String   @default("anonymous")
+  
+  // Linked to User
+  addedBy    String
+  user       User     @relation(fields: [addedBy], references: [id], onDelete: Cascade)
+  
   createdAt  DateTime @default(now())
 
   @@index([playlistId, position])
@@ -133,7 +175,10 @@ model PlaylistInvite {
   id         String   @id @default(cuid())
   playlistId String
   playlist   Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  
   userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
   canEdit    Boolean  @default(true)
   createdAt  DateTime @default(now())
 
