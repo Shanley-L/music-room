@@ -1,0 +1,5 @@
+# Seeded JWTs (never commit)
+.tokens.json
+# API logs and raw outputs; only the small summary-*.json files are kept
+results/*
+!results/summary-*.json

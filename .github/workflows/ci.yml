@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  api:
+    name: API tests (Postgres + Redis)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: musicroom
+          POSTGRES_PASSWORD: musicroom
+          POSTGRES_DB: musicroom_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U musicroom"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: Api
+    env:
+      NODE_ENV: test
+      # Throwaway CI-only database on the job's service container.
+      DATABASE_URL: postgresql://musicroom:musicroom@localhost:5432/musicroom_test
+      TEST_DATABASE_URL: postgresql://musicroom:musicroom@localhost:5432/musicroom_test
+      REDIS_URL: redis://localhost:6379
+      SMTP_HOST: localhost
+      SMTP_PORT: "1025"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: Api/package-lock.json
+      - name: Generate per-run JWT secrets (>= 32 chars, distinct, never stored)
+        run: |
+          echo "JWT_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          echo "JWT_REFRESH_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx prisma db push
+      - run: npm test
+
+  app:
+    name: App typecheck
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: App
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: App/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit

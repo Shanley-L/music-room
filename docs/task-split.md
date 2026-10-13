@@ -1,120 +1,91 @@
 # Répartition des tâches — Music Room (3 personnes)
 
-> Basé sur le sujet officiel v2. Chaque personne gère une **tranche verticale complète** (backend + mobile) pour limiter les dépendances bloquantes.
+> Basé sur le sujet officiel **v6** (`docs/subject.txt`). Statuts mis à jour le 2026-10-13 d'après le code.
+> Chaque personne gère une **tranche verticale complète** (backend + mobile).
+> Les **trois services** sont implémentés (le sujet en exige au moins deux).
 
 ---
 
 ## 👤 Personne 1 — Auth + Sécurité + Infrastructure
 
 ### Backend
-- [x] Architecture Express (structure modulaire, Prisma ORM, connexion PostgreSQL/Redis)
+- [x] Architecture Express (routes / controllers / services, Prisma, PostgreSQL, Redis)
 - [x] Module `auth`
-  - [x] Inscription / Connexion email + mot de passe
-  - [x] OAuth2 : Google
-  - [x] JWT (access token court + refresh token)
-  - [x] Blacklist de tokens dans Redis
-- [x] Module `users` — profil, préférences, données publiques/privées
-- [x] **Sécurité obligatoire**
-  - [x] Rate limiting sur les endpoints sensibles (bruteforce)
-  - [x] Guards/middlewares JWT sur toutes les routes protégées
-  - [x] Validation des inputs & gestion d'erreurs
-- [x] **Logs obligatoires** pour chaque action : plateforme, appareil, version de l'app (console + table `SystemLog`)
-- [x] Documentation **Swagger / OpenAPI** (/api-docs et /api-docs.json)
+  - [x] Inscription / connexion email + mot de passe, validation de l'email, mot de passe oublié
+  - [x] Google : connexion et liaison d'un compte existant (vérification du jeton ID et de l'audience)
+  - [x] JWT (access court + refresh avec rotation), blacklist Redis à la déconnexion
+- [x] Module `users` : profil public / amis / privé, préférences musicales, recherche
+- [x] Sécurité (V.6) : rate limiting, guards JWT, validation zod, isolation des données, note `docs/SECURITY.md`
+- [x] Logs de chaque action (REST et WebSocket) : plateforme, appareil, version (console + `SystemLog`)
+- [x] Swagger / OpenAPI (`/api-docs`, `/api-docs.json`)
 
 ### Mobile
-- [x] Navigation globale (Expo Router — Tabs + Auth Stack)
-- [x] Écran Login / Register avec validation email
-- [x] Connexion OAuth (Google)
-- [x] Écran profil utilisateur (public, amis, privé, préférences musicales, liaison OAuth Google)
-- [x] **Adresse du backend configurable** dans l'app (modal sur login et profil + `useApiConfig`)
-
-### Priorité
-> ✅ **Terminé** — Authentification, sécurité, logs et configuration mobile opérationnels.
+- [x] Navigation (Expo Router : onglets + pile d'auth)
+- [x] Login / Register avec validation email
+- [x] Connexion et liaison Google
+- [x] Profil (public, amis, privé, préférences)
+- [x] Adresse du backend configurable
 
 ---
 
 ## 👤 Personne 2 — Music Track Vote (temps réel)
 
 ### Backend
-- [ ] Module `rooms` — création de salles, gestion visibilité **public/privé**
-  - [ ] Événement public → tous les utilisateurs peuvent voter
-  - [ ] Événement privé → uniquement les utilisateurs invités
-- [ ] Module `tracks` — suggestions de titres, file de lecture
-- [ ] **Système de vote**
-  - [ ] Vote pour un titre → monte dans la liste
-  - [ ] Gestion des **conflits** (plusieurs votes simultanés sur le même titre ou différents)
-- [ ] **Gestion des licences**
-  - [ ] Par défaut : tout le monde peut voter
-  - [ ] Licence avancée : seuls les invités votent
-  - [ ] Licence avancée : restriction par lieu / plage horaire
-- [ ] **WebSocket Gateway** (Socket.IO) — diffusion des votes en temps réel
-- [ ] Redis Pub/Sub — synchronisation entre utilisateurs
+- [x] Module `rooms` : création, visibilité public/privé, invitations, code d'invitation, mes salles, suppression
+- [x] Module `tracks` : suggestions, file de lecture
+- [x] Vote atomique sérialisé par salle (votes simultanés sur le même titre ou des titres différents)
+- [x] Licences : tout le monde / invités seulement / lieu + plage horaire
+- [x] Socket.IO : `queue:updated`, `track:suggested`, `vote:changed`, révocations
+- [x] Adaptateur Redis (Pub/Sub entre instances)
 
 ### Mobile
-- [ ] Écran création d'un événement (nom, visibilité, licence)
-- [ ] Écran rejoindre un événement (liste des publics + code privé)
-- [ ] Écran vote en temps réel (liste des titres, bouton vote, mise à jour instantanée)
-- [ ] Client WebSocket
+- [x] Création d'un événement (nom, visibilité, licence, zone et horaires)
+- [x] Rejoindre un événement (publics, code privé, mes salles)
+- [x] Vote en temps réel (file, voter / retirer, suggestion via Deezer)
+- [x] Client WebSocket partagé (`SocketContext`)
 
 ---
 
-## 👤 Personne 3 — Music Playlist Editor + Tests de charge
+## 👤 Personne 3 — Music Playlist Editor + Control Delegation + Tests de charge
 
 ### Backend
-- [x] Intégration **Spotify API** (ou Deezer) — recherche de titres, métadonnées
-- [x] Module `playlists` — création de playlists collaboratives / stations radio
-  - [x] Visibilité **public/privé**
-    - [x] Publique : tout utilisateur y a accès
-    - [x] Privée : uniquement les invités
-  - [x] **Gestion des licences**
-    - [x] Par défaut : tout le monde peut éditer
-    - [x] Licence avancée : seuls les invités peuvent éditer
-  - [x] Gestion des **conflits** (déplacement simultané de titres)
-- [ ] WebSocket Gateway — propagation des modifications en temps réel
+- [x] Intégration Deezer (recherche, découverte)
+- [x] Module `playlists` : visibilité, licence d'édition, invitations, code d'invitation
+- [x] Conflits de déplacement (verrou consultatif par playlist, l'état serveur fait foi)
+- [x] Socket.IO : `playlist:tracks-updated`, `playlist:updated`, révocations
+- [x] Appareils, amis, délégations par appareil (droits play/pause, skip, volume), relais des commandes par socket
 
 ### Mobile
-- [x] Écran recherche de titres (via Spotify/Deezer)
-- [x] Écran liste de playlists (publiques + privées invité)
-- [x] Écran éditeur collaboratif (drag & drop, ajout/suppression de titres)
-- [ ] Mises à jour temps réel via WebSocket
+- [x] Recherche de titres, liste de playlists, éditeur collaboratif (drag & drop) en temps réel
+- [x] Écrans appareils, amis, télécommande ; exécution des commandes sur l'appareil propriétaire
 
-### Tests de charge (obligatoires)
-- [ ] Script **k6** (ou Apache Benchmark) pour les 3 services simultanément
-- [ ] Mesure du nombre maximum d'utilisateurs simultanés
-- [ ] Documentation des specs serveur (CPU, RAM, type d'hébergement)
+### Tests de charge (V.7)
+- [x] Scripts k6 pour les 3 services en parallèle, REST + WebSocket (`load/`)
+- [x] Mesure du nombre maximal d'utilisateurs simultanés et des goulots d'étranglement
+- [x] Specs machine et justification (`docs/LOAD_TESTING.md`)
 
 ---
 
-## Tâches communes (à se partager)
+## Tâches communes
 
-| Tâche | Responsable suggéré |
-|-------|---------------------|
-| Setup Docker Compose | ✅ Fait |
-| `.env` / `.env.example` | ✅ Fait |
-| Makefile | ✅ Fait |
-| Schéma Prisma (BDD) | Personne 1 (base) + chacun ajoute ses tables |
-| Swagger (documentation) | Personne 1 bootstrap, chacun documente ses routes |
-| README final | Tout le monde |
-
----
-
-## Ordre de développement recommandé
-
-```
-Semaine 1    → Personne 1 livre : Auth + JWT + structure NestJS
-Semaine 2    → Personnes 2 & 3 développent leurs features en parallèle
-Semaine 3    → Intégration + tests de charge + polish mobile
-```
+| Tâche | Statut |
+|-------|--------|
+| Docker Compose, ports configurables | ✅ |
+| `.env.example` (API et App), secrets hors git | ✅ |
+| Makefile (`up`, `test`, `test-db`, `load`, `load-api`) | ✅ |
+| Tests API automatisés (`npm test`) | ✅ |
+| CI GitHub Actions (tests API + typecheck App) | ✅ |
+| README racine (architecture, choix, lancement) | ✅ |
+| Note de sécurité | ✅ `docs/SECURITY.md` |
 
 ---
 
-## Récapitulatif
+## Hors périmètre (volontairement)
 
-|  | Personne 1 | Personne 2 | Personne 3 |
-|--|--|--|--|
-| **Feature** | Auth + Sécurité | Music Track Vote | Music Playlist Editor |
-| **Backend** | auth, users, logs | rooms, tracks, vote | playlists, spotify |
-| **Mobile** | Login, profil, OAuth | Vote UI, rooms | Playlist editor |
-| **Temps réel** | ❌ | ✅ WebSocket | ✅ WebSocket |
-| **Spécifique** | Swagger, Rate limit | Licences, conflits vote | Licences, conflits playlist |
-| **Tests** | ❌ | ❌ | ✅ k6 load tests |
+Les bonus (VI) ne sont pas réalisés : le sujet ne les évalue que si la partie obligatoire est parfaite.
+- Support web responsive (VI.1)
+- IoT / iBeacon (VI.2)
+- Abonnement gratuit / payant (VI.3)
+- Mode hors ligne et synchronisation (VI.4)
+
+Connexion Facebook : non implémentée, Google suffit (« Facebook ou Google »).

@@ -1,0 +1,263 @@
+{
+  "date": "2026-10-13T14:15:32.231Z",
+  "params": {
+    "baseUrl": "http://localhost:3000",
+    "simulatedUsers": 200,
+    "vus": {
+      "trackVote": 80,
+      "playlistEditor": 80,
+      "controlDelegation": 20
+    },
+    "ramp": "1m",
+    "hold": "2m",
+    "sessionS": 60,
+    "thinkMs": 3000,
+    "usersPerRoom": 25,
+    "usersPerPlaylist": 10,
+    "p95Ms": 500
+  },
+  "thresholdsPassed": true,
+  "metrics": {
+    "http_reqs": {
+      "count": 16257,
+      "rate": 61.250021695763074,
+      "thresholds": {}
+    },
+    "http_req_failed": {
+      "passes": 0,
+      "fails": 16257,
+      "rate": 0,
+      "thresholds": {
+        "rate<0.01": {
+          "ok": true
+        }
+      }
+    },
+    "http_req_duration": {
+      "avg": 55.07406438617194,
+      "med": 16.096891,
+      "p(90)": 126.72394379999993,
+      "p(95)": 260.77214119999974,
+      "p(99)": 665.5863400800023,
+      "max": 1370.315743,
+      "thresholds": {
+        "p(95)<500": {
+          "ok": true
+        }
+      }
+    },
+    "http_req_duration{service:vote}": {
+      "med": 14.720539,
+      "p(90)": 135.07772459999998,
+      "p(95)": 282.5494318,
+      "p(99)": 761.9002950399984,
+      "max": 1370.315743,
+      "avg": 56.677899615782316,
+      "thresholds": {
+        "p(95)<500": {
+          "ok": true
+        }
+      }
+    },
+    "http_req_duration{service:playlist}": {
+      "med": 17.500732,
+      "p(90)": 117.2327665,
+      "p(95)": 228.45516849999998,
+      "p(99)": 571.9460339000001,
+      "max": 1173.785022,
+      "avg": 53.27158983745734,
+      "thresholds": {
+        "p(95)<500": {
+          "ok": true
+        }
+      }
+    },
+    "http_req_duration{service:delegation}": {
+      "med": 1.6089825,
+      "p(90)": 40.27961690000001,
+      "p(95)": 74.7927253499999,
+      "p(99)": 298.04378857999967,
+      "max": 911.741811,
+      "avg": 23.49470042622951,
+      "thresholds": {
+        "p(95)<500": {
+          "ok": true
+        }
+      }
+    },
+    "http_req_failed{service:vote}": {
+      "rate": 0,
+      "passes": 0,
+      "fails": 9669,
+      "thresholds": {
+        "rate<0.01": {
+          "ok": true
+        }
+      }
+    },
+    "http_req_failed{service:playlist}": {
+      "fails": 6466,
+      "rate": 0,
+      "passes": 0,
+      "thresholds": {
+        "rate<0.01": {
+          "ok": true
+        }
+      }
+    },
+    "http_req_failed{service:delegation}": {
+      "fails": 122,
+      "rate": 0,
+      "passes": 0,
+      "thresholds": {
+        "rate<0.01": {
+          "ok": true
+        }
+      }
+    },
+    "checks": {
+      "rate": 1,
+      "passes": 20215,
+      "fails": 0,
+      "thresholds": {
+        "rate>0.99": {
+          "ok": true
+        }
+      }
+    },
+    "sio_connect_ok": {
+      "fails": 0,
+      "rate": 1,
+      "passes": 608,
+      "thresholds": {
+        "rate>0.99": {
+          "ok": true
+        }
+      }
+    },
+    "sio_connect_time": {
+      "med": 1,
+      "p(90)": 2,
+      "p(95)": 3,
+      "p(99)": 6,
+      "max": 24,
+      "avg": 1.199013157894737,
+      "thresholds": {}
+    },
+    "sio_ack_ok": {
+      "rate": 1,
+      "passes": 4128,
+      "fails": 0,
+      "thresholds": {}
+    },
+    "sio_ack_time": {
+      "p(95)": 122,
+      "p(99)": 429.84000000000015,
+      "max": 1244,
+      "avg": 23.615067829457363,
+      "med": 1,
+      "p(90)": 46.30000000000018,
+      "thresholds": {}
+    },
+    "vote_broadcast_received": {
+      "passes": 4691,
+      "fails": 0,
+      "rate": 1,
+      "thresholds": {
+        "rate>0.99": {
+          "ok": true
+        }
+      }
+    },
+    "vote_broadcast_latency": {
+      "avg": 63.450010658708166,
+      "med": 26,
+      "p(90)": 141,
+      "p(95)": 240,
+      "p(99)": 535.1000000000004,
+      "max": 1281,
+      "thresholds": {
+        "p(95)<1000": {
+          "ok": true
+        }
+      }
+    },
+    "vote_queue_updates_received": {
+      "count": 82399,
+      "rate": 310.44722505438773,
+      "thresholds": {}
+    },
+    "playlist_broadcast_received": {
+      "rate": 1,
+      "passes": 4661,
+      "fails": 0,
+      "thresholds": {
+        "rate>0.99": {
+          "ok": true
+        }
+      }
+    },
+    "playlist_broadcast_latency": {
+      "avg": 65.38275048272902,
+      "med": 23,
+      "p(90)": 133,
+      "p(95)": 273,
+      "p(99)": 654.7999999999956,
+      "max": 1175,
+      "thresholds": {
+        "p(95)<1000": {
+          "ok": true
+        }
+      }
+    },
+    "playlist_tracks_updates_received": {
+      "count": 42834,
+      "rate": 161.38176965715172,
+      "thresholds": {}
+    },
+    "delegation_roundtrip_ok": {
+      "rate": 1,
+      "passes": 1194,
+      "fails": 0,
+      "thresholds": {
+        "rate>0.99": {
+          "ok": true
+        }
+      }
+    },
+    "delegation_roundtrip": {
+      "p(99)": 696.4999999999968,
+      "max": 1347,
+      "avg": 45.57537688442211,
+      "med": 2,
+      "p(90)": 109.40000000000009,
+      "p(95)": 306.6999999999998,
+      "thresholds": {
+        "p(95)<1000": {
+          "ok": true
+        }
+      }
+    },
+    "ws_msgs_received": {
+      "count": 221951,
+      "rate": 836.2246149594827,
+      "thresholds": {}
+    },
+    "ws_msgs_sent": {
+      "rate": 27.006222274419002,
+      "count": 7168,
+      "thresholds": {}
+    },
+    "ws_sessions": {
+      "count": 608,
+      "rate": 2.2907063536337544,
+      "thresholds": {}
+    },
+    "vus_max": {
+      "max": 180,
+      "value": 180,
+      "min": 180,
+      "thresholds": {}
+    }
+  }
+}
