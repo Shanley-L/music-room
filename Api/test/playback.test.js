@@ -6,7 +6,7 @@ import {
   resetDb,
   api,
   createUser,
-  createRoom,
+  createRoom as createHeldRoom,
   suggestTrack,
   connectSocket,
   emitAck,
@@ -18,6 +18,7 @@ let owner;
 let member;
 let invitee;
 
+const createRoom = (owner, body) => createHeldRoom(owner, body, { live: true });
 const pb = (user, roomId, action, body) =>
   api('POST', `/api/rooms/${roomId}/playback/${action}`, { token: user.token, body });
 const getState = (user, roomId) => api('GET', `/api/rooms/${roomId}/playback`, { token: user.token });

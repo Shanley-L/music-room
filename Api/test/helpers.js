@@ -142,10 +142,18 @@ export async function api(method, path, { token, body } = {}) {
   return { status: res.status, body: data };
 }
 
-export async function createRoom(owner, body) {
+/**
+ * Creates a room. By default the room is held (PAUSED, nothing playing) so suggested
+ * tracks stay QUEUED; the live chain autostarts only IDLE rooms. Pass `{ live: true }`
+ * to keep the real behavior.
+ */
+export async function createRoom(owner, body, { live = false } = {}) {
   const res = await api('POST', '/api/rooms', { token: owner.token, body });
   if (res.status !== 201) {
     throw new Error(`createRoom failed: ${res.status} ${JSON.stringify(res.body)}`);
+  }
+  if (!live) {
+    await prisma.room.update({ where: { id: res.body.id }, data: { playbackStatus: 'PAUSED' } });
   }
   return res.body;
 }
