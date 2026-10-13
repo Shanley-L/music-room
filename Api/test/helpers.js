@@ -11,31 +11,70 @@ if (!process.env.TEST_DATABASE_URL) {
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
 
 import { randomUUID } from 'crypto';
+import http from 'http';
 import jwt from 'jsonwebtoken';
+import { io as ioClient } from 'socket.io-client';
 
 const { default: app } = await import('../src/app.js');
 const { default: prisma } = await import('../src/lib/prisma.js');
 const { default: redis } = await import('../src/lib/redis.js');
 const { JWT_SECRET } = await import('../src/middleware/auth.js');
+const { initRealtime, closeRealtime } = await import('../src/lib/realtime.js');
 
 export { prisma };
 
 let server;
 let baseUrl;
 
-/** Starts the app on an ephemeral port and returns its base URL. */
-export async function startServer() {
+const openSockets = new Set();
+
+/**
+ * Starts the app with Socket.IO on an ephemeral port and returns its base URL.
+ * `realtime` options are passed to `initRealtime` (e.g. `{ redisClient: null }`).
+ */
+export async function startServer({ realtime } = {}) {
   if (server) return baseUrl;
-  await new Promise((resolve) => {
-    server = app.listen(0, '127.0.0.1', resolve);
-  });
+  server = http.createServer(app);
+  await initRealtime(server, realtime);
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
   return baseUrl;
 }
 
+/**
+ * Starts a second app instance (own HTTP server + Socket.IO, not the one REST
+ * controllers emit through). Returns `{ url, io, close }`.
+ */
+export async function startExtraInstance(realtime = {}) {
+  const extra = http.createServer(app);
+  const io = await initRealtime(extra, { ...realtime, register: false });
+  await new Promise((resolve) => extra.listen(0, '127.0.0.1', resolve));
+  return {
+    url: `http://127.0.0.1:${extra.address().port}`,
+    io,
+    close: () => closeRealtime(io),
+  };
+}
+
+/** True when the shared Redis answers a PING within one second. */
+export async function isRedisUp() {
+  if (!redis) return false;
+  try {
+    await Promise.race([
+      redis.ping(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 1000)),
+    ]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function stopServer() {
+  for (const socket of openSockets) socket.disconnect();
+  openSockets.clear();
   if (server) {
-    await new Promise((resolve) => server.close(resolve));
+    await closeRealtime();
     server = null;
   }
   await prisma.$disconnect().catch(() => {});
@@ -45,15 +84,15 @@ export async function stopServer() {
 /** Wipes all tables touched by the auth/room/vote tests. */
 export async function resetDb() {
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE "Vote", "Track", "RoomInvite", "Room", "RefreshToken", "SystemLog", "User" RESTART IDENTITY CASCADE'
+    'TRUNCATE TABLE "Vote", "Track", "RoomInvite", "Room", "PlaylistTrack", "PlaylistInvite", "Playlist", "RefreshToken", "SystemLog", "User" RESTART IDENTITY CASCADE'
   );
 }
 
-export function tokenFor(user) {
+export function tokenFor(user, expiresIn = '1h') {
   return jwt.sign(
     { sub: user.id, email: user.email, name: user.name, jti: randomUUID() },
     JWT_SECRET,
-    { expiresIn: '1h' }
+    { expiresIn }
   );
 }
 
@@ -119,3 +158,58 @@ export async function suggestTrack(user, roomId, overrides = {}) {
   }
   return res.body;
 }
+
+/**
+ * Opens a Socket.IO client. `auth` defaults to the user's token plus client info.
+ * Resolves once connected; rejects with the server's connect_error otherwise.
+ */
+export function connectSocket(user, { auth, url = baseUrl } = {}) {
+  const socket = ioClient(url, {
+    transports: ['websocket'],
+    reconnection: false,
+    forceNew: true,
+    auth: auth ?? { token: user.token, platform: 'test', device: 'node', appVersion: '0.0.0' },
+  });
+  openSockets.add(socket);
+  socket.received = [];
+  socket.onAny((event, payload) => socket.received.push({ event, payload }));
+
+  return new Promise((resolve, reject) => {
+    socket.once('connect', () => resolve(socket));
+    socket.once('connect_error', (err) => {
+      openSockets.delete(socket);
+      socket.disconnect();
+      reject(err);
+    });
+  });
+}
+
+/** Emits `event` with `payload` and resolves with the server ack. */
+export function emitAck(socket, event, payload) {
+  return socket.timeout(5000).emitWithAck(event, payload);
+}
+
+/**
+ * Resolves with the first `event` payload (already received or upcoming) matching
+ * `predicate`; rejects after `timeoutMs`.
+ */
+export function waitForEvent(socket, event, predicate = () => true, timeoutMs = 5000) {
+  const past = socket.received.find((r) => r.event === event && predicate(r.payload));
+  if (past) return Promise.resolve(past.payload);
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      socket.off(event, handler);
+      reject(new Error(`timed out waiting for ${event}`));
+    }, timeoutMs);
+    function handler(payload) {
+      if (!predicate(payload)) return;
+      clearTimeout(timer);
+      socket.off(event, handler);
+      resolve(payload);
+    }
+    socket.on(event, handler);
+  });
+}
+
+export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

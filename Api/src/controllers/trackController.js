@@ -7,6 +7,7 @@ import {
   deleteTrack,
 } from '../services/trackService.js';
 import { getRoomById, isUserAllowedInRoom, canVote } from '../services/roomService.js';
+import { emitToRoom, emitRoomQueue } from '../lib/realtime.js';
 
 const suggestSchema = z.object({
   externalId: z
@@ -32,6 +33,13 @@ const positionSchema = z
 
 function sendServiceError(res, result) {
   return res.status(result.status).json({ error: result.error, code: result.code });
+}
+
+/** Realtime: `vote:changed` with the count committed by this write, then the fresh queue. */
+function broadcastVote(roomId, trackId, queue) {
+  const track = queue.find((t) => t.id === trackId);
+  if (track) emitToRoom(roomId, 'vote:changed', { roomId, trackId, voteCount: track.voteCount });
+  emitRoomQueue(roomId);
 }
 
 async function checkRoomAccess(req, res) {
@@ -75,6 +83,10 @@ export async function suggest(req, res) {
 
   if (result.error) return sendServiceError(res, result);
 
+  const { roomId } = req.params;
+  emitToRoom(roomId, 'track:suggested', { roomId, track: result.track });
+  emitRoomQueue(roomId);
+
   return res.status(201).json(result.track);
 }
 
@@ -96,6 +108,8 @@ export async function vote(req, res) {
 
   if (result.error) return sendServiceError(res, result);
 
+  broadcastVote(req.params.roomId, req.params.trackId, result.queue);
+
   return res.json({ track: result.track, queue: result.queue });
 }
 
@@ -106,6 +120,8 @@ export async function unvote(req, res) {
   const result = await removeVote(req.params.roomId, req.params.trackId, req.user.id);
 
   if (result.error) return sendServiceError(res, result);
+
+  broadcastVote(req.params.roomId, req.params.trackId, result.queue);
 
   return res.json({ queue: result.queue });
 }
@@ -123,6 +139,10 @@ export async function remove(req, res) {
   const result = await deleteTrack(req.params.roomId, req.params.trackId);
 
   if (result.error) return sendServiceError(res, result);
+
+  const { roomId, trackId } = req.params;
+  emitToRoom(roomId, 'track:removed', { roomId, trackId });
+  emitRoomQueue(roomId);
 
   return res.json({ queue: result.queue });
 }
