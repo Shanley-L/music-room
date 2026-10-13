@@ -200,6 +200,22 @@ describe('authentication', () => {
     });
     assert.equal(res.status, 401);
   });
+
+  test('GET /api/users/:id with only x-dev-user-id gets the public view (no identity)', async () => {
+    await prisma.user.update({
+      where: { id: owner.id },
+      data: { privateInfo: 'secret', friendsInfo: 'friends only' },
+    });
+    const res = await fetch(`${(await startServer())}/api/users/${owner.id}`, {
+      headers: { 'x-dev-user-id': owner.id },
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.id, owner.id);
+    for (const field of ['email', 'privateInfo', 'friendsInfo', 'password', 'googleId']) {
+      assert.equal(body[field], undefined, field);
+    }
+  });
 });
 
 describe('ownership and visibility', () => {

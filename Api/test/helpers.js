@@ -81,10 +81,10 @@ export async function stopServer() {
   if (redis) redis.disconnect();
 }
 
-/** Wipes all tables touched by the auth/room/vote tests. */
+/** Wipes all tables touched by the tests. */
 export async function resetDb() {
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE "Vote", "Track", "RoomInvite", "Room", "PlaylistTrack", "PlaylistInvite", "Playlist", "RefreshToken", "SystemLog", "User" RESTART IDENTITY CASCADE'
+    'TRUNCATE TABLE "ControlDelegation", "Device", "Friendship", "Vote", "Track", "RoomInvite", "Room", "PlaylistTrack", "PlaylistInvite", "Playlist", "RefreshToken", "SystemLog", "User" RESTART IDENTITY CASCADE'
   );
 }
 
@@ -213,3 +213,39 @@ export function waitForEvent(socket, event, predicate = () => true, timeoutMs = 
 }
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Makes `a` and `b` accepted friends through the REST API. */
+export async function befriend(a, b) {
+  const req = await api('POST', '/api/friends/requests', { token: a.token, body: { userId: b.id } });
+  if (req.status !== 201) throw new Error(`friend request failed: ${req.status} ${JSON.stringify(req.body)}`);
+  const ok = await api('POST', `/api/friends/requests/${req.body.id}/accept`, { token: b.token });
+  if (ok.status !== 200) throw new Error(`accept failed: ${ok.status} ${JSON.stringify(ok.body)}`);
+  return req.body;
+}
+
+/** Registers a device for `user` through the REST API. */
+export async function registerDevice(user, overrides = {}) {
+  const res = await api('POST', '/api/devices', {
+    token: user.token,
+    body: {
+      name: 'Téléphone',
+      platform: 'android',
+      installationId: `inst-${randomUUID()}`,
+      ...overrides,
+    },
+  });
+  if (res.status !== 201) throw new Error(`registerDevice failed: ${res.status} ${JSON.stringify(res.body)}`);
+  return res.body;
+}
+
+/** Grants `delegate` control of `deviceId` (owned by `owner`) through the REST API. */
+export async function delegateDevice(owner, deviceId, delegate, rights = {}) {
+  const res = await api('POST', `/api/devices/${deviceId}/delegations`, {
+    token: owner.token,
+    body: { userId: delegate.id, ...rights },
+  });
+  if (res.status !== 201 && res.status !== 200) {
+    throw new Error(`delegateDevice failed: ${res.status} ${JSON.stringify(res.body)}`);
+  }
+  return res.body;
+}

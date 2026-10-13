@@ -12,6 +12,9 @@ import deezerRoutes from './routes/deezerRoutes.js';
 import playlistRoutes from './routes/playlistRoutes.js';
 import roomRoutes from './routes/roomRoutes.js';
 import trackRoutes from './routes/trackRoutes.js';
+import deviceRoutes from './routes/deviceRoutes.js';
+import friendRoutes from './routes/friendRoutes.js';
+import delegationRoutes from './routes/delegationRoutes.js';
 
 const app = express();
 
@@ -37,11 +40,14 @@ app.use('/api/deezer', deezerRoutes);
 app.use('/api/playlists', authMiddleware, playlistRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api/rooms/:roomId/tracks', trackRoutes);
+app.use('/api/devices', authMiddleware, deviceRoutes);
+app.use('/api/friends', authMiddleware, friendRoutes);
+app.use('/api/delegations', authMiddleware, delegationRoutes);
 
 // Global Error Handler
 app.use((err, req, res, next) => {
   console.error('[Error]', err);
-  res.status(500).json({ error: 'Une erreur interne est survenue' });
+  res.status(500).json({ error: 'Une erreur interne est survenue', code: 'INTERNAL_ERROR' });
 });
 
 export default app;

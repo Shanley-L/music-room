@@ -7,15 +7,24 @@ import { JWT_SECRET } from '../middleware/auth.js';
 import { getRoomById, isUserAllowedInRoom } from '../services/roomService.js';
 import { getTracksForRoom } from '../services/trackService.js';
 import { isUserAllowedInPlaylist, getPlaylistTracks } from '../services/playlistService.js';
+import { canControl, COMMAND_RIGHTS } from '../services/delegationService.js';
 
 /**
- * Socket.IO layer. REST stays the only write path: sockets authenticate with the
- * same JWT, join `room:<id>` / `playlist:<id>` channels after the same access
- * checks as REST, and only receive broadcasts. See Api/REALTIME.md.
+ * Socket.IO layer. REST stays the only write path for rooms and playlists:
+ * sockets authenticate with the same JWT, join `room:<id>` / `playlist:<id>`
+ * channels after the same access checks as REST, and only receive broadcasts.
+ * Music Control Delegation relays playback commands and player state between a
+ * device's player and its watchers (owner and delegates). See Api/REALTIME.md.
  */
 
 const REDIS_CONNECT_TIMEOUT_MS = 2000;
 const MAX_CHANNELS_PER_SOCKET = 50;
+// Per-socket limit on `device:command` and on `device:state` (separate budgets):
+// at most COMMAND_RATE_MAX within COMMAND_RATE_WINDOW_MS.
+const COMMAND_RATE_MAX = 10;
+const COMMAND_RATE_WINDOW_MS = 1000;
+// Upper bound on a serialized `device:state` payload.
+const MAX_STATE_BYTES = 8 * 1024;
 // setTimeout delays above this overflow (~24.8 days).
 const MAX_TIMER_MS = 2 ** 31 - 1;
 
@@ -23,6 +32,21 @@ let io = null;
 
 export const roomChannel = (roomId) => `room:${roomId}`;
 export const playlistChannel = (playlistId) => `playlist:${playlistId}`;
+/** Watchers of a device (owner and delegates): receive `device:state`. */
+export const deviceChannel = (deviceId) => `device:${deviceId}`;
+/** Player sockets of a device (owner only): receive `device:command`. */
+export const devicePlayerChannel = (deviceId) => `device-player:${deviceId}`;
+/** Every socket of a user, joined automatically: receives `device:revoked`. */
+export const userChannel = (userId) => `user:${userId}`;
+
+/** Channels the socket subscribed to (its own id and its user channel excluded). */
+function subscribedCount(socket) {
+  let count = 0;
+  for (const channel of socket.rooms) {
+    if (channel !== socket.id && channel !== userChannel(socket.data.userId)) count += 1;
+  }
+  return count;
+}
 
 function clientInfo(socket) {
   const auth = socket.handshake?.auth || {};
@@ -128,6 +152,10 @@ const STATUS_BY_CODE = {
   PLAYLIST_NOT_FOUND: 404,
   UNAUTHORIZED: 401,
   TOO_MANY_CHANNELS: 429,
+  DEVICE_NOT_FOUND: 404,
+  VALIDATION_ERROR: 400,
+  RATE_LIMITED: 429,
+  DEVICE_OFFLINE: 503,
 };
 
 /**
@@ -139,8 +167,7 @@ async function joinChecked(socket, ack, channel, action, check) {
   let code = null;
   // Tokens revoked (logout) after the handshake can no longer subscribe.
   if (await isTokenBlacklisted(socket.handshake.auth.token)) code = 'UNAUTHORIZED';
-  // socket.rooms also contains the socket's own id.
-  else if (!socket.rooms.has(channel) && socket.rooms.size - 1 >= MAX_CHANNELS_PER_SOCKET) {
+  else if (!socket.rooms.has(channel) && subscribedCount(socket) >= MAX_CHANNELS_PER_SOCKET) {
     code = 'TOO_MANY_CHANNELS';
   } else code = await check();
 
@@ -195,6 +222,191 @@ async function handleLeave(socket, payload, ack, key, channelOf, action) {
   if (!id) return safeAck(ack, { ok: false, code: 'VALIDATION_ERROR' });
   await socket.leave(channelOf(id));
   logSocket(socket, `${action} ${logId(id)}`, 200);
+  return safeAck(ack, { ok: true });
+}
+
+// ---------------------------------------------------------------------------
+// Music Control Delegation
+// ---------------------------------------------------------------------------
+
+/** Owner registers one of their sockets as the player of a device. */
+async function handleDeviceRegister(socket, payload, ack) {
+  const deviceId = idFrom(payload, 'deviceId');
+  if (!deviceId) {
+    logSocket(socket, 'device:register', 400);
+    return safeAck(ack, { ok: false, code: 'VALIDATION_ERROR' });
+  }
+
+  const check = async () => {
+    const device = await prisma.device.findUnique({
+      where: { id: deviceId },
+      select: { userId: true },
+    });
+    if (!device) return 'DEVICE_NOT_FOUND';
+    if (device.userId !== socket.data.userId) return 'DEVICE_FORBIDDEN';
+    return null;
+  };
+
+  return joinChecked(
+    socket,
+    ack,
+    devicePlayerChannel(deviceId),
+    `device:register ${logId(deviceId)}`,
+    check
+  );
+}
+
+/** Owner or active delegate subscribes to a device's player state. */
+async function handleDeviceWatch(socket, payload, ack) {
+  const deviceId = idFrom(payload, 'deviceId');
+  if (!deviceId) {
+    logSocket(socket, 'device:watch', 400);
+    return safeAck(ack, { ok: false, code: 'VALIDATION_ERROR' });
+  }
+
+  const check = async () => {
+    const access = await canControl(socket.data.userId, deviceId);
+    return access.ok ? null : access.code;
+  };
+
+  return joinChecked(socket, ack, deviceChannel(deviceId), `device:watch ${logId(deviceId)}`, check);
+}
+
+/** Per-socket sliding-window limiter, one budget per `bucket`; true when the event may proceed. */
+function takeSlot(socket, bucket) {
+  const now = Date.now();
+  socket.data.rate ??= {};
+  const recent = (socket.data.rate[bucket] || []).filter((t) => now - t < COMMAND_RATE_WINDOW_MS);
+  const allowed = recent.length < COMMAND_RATE_MAX;
+  if (allowed) recent.push(now);
+  socket.data.rate[bucket] = recent;
+  return allowed;
+}
+
+// Per-device chains: commands for one device are checked and relayed in the
+// order the server received them.
+const commandChains = new Map();
+
+function inDeviceOrder(deviceId, task) {
+  const previous = commandChains.get(deviceId) || Promise.resolve();
+  const run = previous.then(task);
+  const tail = run.catch(() => {});
+  commandChains.set(deviceId, tail);
+  tail.then(() => {
+    if (commandChains.get(deviceId) === tail) commandChains.delete(deviceId);
+  });
+  return run;
+}
+
+function parseCommand(payload) {
+  const deviceId = idFrom(payload, 'deviceId');
+  const command = payload?.command;
+  if (!deviceId || typeof command !== 'string' || !Object.hasOwn(COMMAND_RIGHTS, command)) {
+    return null;
+  }
+  let value = null;
+  if (command === 'setVolume') {
+    value = payload.value;
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 100) return null;
+  }
+  return { deviceId, command, value };
+}
+
+/**
+ * Owner or delegate sends a playback command. Access and the right for this
+ * command are re-read from the database every time, then the command is relayed
+ * to the device's player sockets. Never executed server-side.
+ */
+async function handleDeviceCommand(socket, payload, ack) {
+  if (!takeSlot(socket, 'command')) {
+    logSocket(socket, 'device:command', 429);
+    return safeAck(ack, { ok: false, code: 'RATE_LIMITED' });
+  }
+
+  const parsed = parseCommand(payload);
+  if (!parsed) {
+    logSocket(socket, 'device:command', 400);
+    return safeAck(ack, { ok: false, code: 'VALIDATION_ERROR' });
+  }
+  const { deviceId, command, value } = parsed;
+  const action = `device:command ${logId(deviceId)} ${command}`;
+
+  return inDeviceOrder(deviceId, async () => {
+    let code = null;
+    if (await isTokenBlacklisted(socket.handshake.auth.token)) code = 'UNAUTHORIZED';
+    else {
+      const access = await canControl(socket.data.userId, deviceId, command);
+      if (!access.ok) code = access.code;
+    }
+
+    const players = devicePlayerChannel(deviceId);
+    if (!code && (await socket.nsp.in(players).fetchSockets()).length === 0) code = 'DEVICE_OFFLINE';
+
+    if (code) {
+      logSocket(socket, action, STATUS_BY_CODE[code] || 403);
+      return safeAck(ack, { ok: false, code });
+    }
+
+    const { id, name } = socket.data.user;
+    socket.nsp.to(players).emit('device:command', {
+      deviceId,
+      command,
+      value,
+      from: { id, name: name ?? null },
+    });
+    logSocket(socket, action, 200);
+    return safeAck(ack, { ok: true });
+  });
+}
+
+/**
+ * The device's player (an owner socket registered with `device:register`)
+ * publishes the playback state to all watchers.
+ */
+async function handleDeviceState(socket, payload, ack) {
+  if (!takeSlot(socket, 'state')) {
+    logSocket(socket, 'device:state', 429);
+    return safeAck(ack, { ok: false, code: 'RATE_LIMITED' });
+  }
+
+  const deviceId = idFrom(payload, 'deviceId');
+  const state = payload?.state;
+  let valid = !!deviceId && state !== null && typeof state === 'object' && !Array.isArray(state);
+  if (valid) {
+    try {
+      valid = Buffer.byteLength(JSON.stringify(state)) <= MAX_STATE_BYTES;
+    } catch {
+      valid = false;
+    }
+  }
+  if (!valid) {
+    logSocket(socket, 'device:state', 400);
+    return safeAck(ack, { ok: false, code: 'VALIDATION_ERROR' });
+  }
+
+  const action = `device:state ${logId(deviceId)}`;
+  let code = null;
+  if (await isTokenBlacklisted(socket.handshake.auth.token)) code = 'UNAUTHORIZED';
+  else if (!socket.rooms.has(devicePlayerChannel(deviceId))) code = 'DEVICE_FORBIDDEN';
+  else {
+    const device = await prisma.device.findUnique({
+      where: { id: deviceId },
+      select: { userId: true },
+    });
+    if (!device) code = 'DEVICE_NOT_FOUND';
+    else if (device.userId !== socket.data.userId) code = 'DEVICE_FORBIDDEN';
+  }
+  if (code) {
+    logSocket(socket, action, STATUS_BY_CODE[code] || 403);
+    return safeAck(ack, { ok: false, code });
+  }
+
+  socket.nsp.to(deviceChannel(deviceId)).emit('device:state', {
+    deviceId,
+    state,
+    at: new Date().toISOString(),
+  });
+  logSocket(socket, action, 200);
   return safeAck(ack, { ok: true });
 }
 
@@ -286,6 +498,8 @@ export async function initRealtime(
   server.on('connection', (socket) => {
     logSocket(socket, 'connect', 101);
     scheduleExpiry(socket, socket.data.exp);
+    // Per-user channel (not counted in the channel cap), used for `device:revoked`.
+    socket.join(userChannel(socket.data.userId));
 
     socket.on('room:join', guarded(socket, 'room:join', handleRoomJoin));
     socket.on(
@@ -299,6 +513,23 @@ export async function initRealtime(
         handleLeave(s, p, a, 'playlistId', playlistChannel, 'playlist:leave')
       )
     );
+
+    socket.on('device:register', guarded(socket, 'device:register', handleDeviceRegister));
+    socket.on(
+      'device:unregister',
+      guarded(socket, 'device:unregister', (s, p, a) =>
+        handleLeave(s, p, a, 'deviceId', devicePlayerChannel, 'device:unregister')
+      )
+    );
+    socket.on('device:watch', guarded(socket, 'device:watch', handleDeviceWatch));
+    socket.on(
+      'device:unwatch',
+      guarded(socket, 'device:unwatch', (s, p, a) =>
+        handleLeave(s, p, a, 'deviceId', deviceChannel, 'device:unwatch')
+      )
+    );
+    socket.on('device:command', guarded(socket, 'device:command', handleDeviceCommand));
+    socket.on('device:state', guarded(socket, 'device:state', handleDeviceState));
 
     socket.on('disconnect', () => logSocket(socket, 'disconnect', 200));
   });
@@ -399,4 +630,56 @@ export function evictFromRoom(roomId, userId) {
 /** Removes sockets of a playlist channel matching `filter` (all when omitted). */
 export function evictFromPlaylist(playlistId, filter) {
   return evict(playlistChannel(playlistId), filter);
+}
+
+/**
+ * A user lost control of a device (delegation revoked, friendship ended): their
+ * sockets stop watching it, then receive `device:revoked { deviceId, reason }`.
+ * Never throws.
+ */
+export async function revokeDeviceAccess(deviceId, userId, reason = 'REVOKED') {
+  if (!io) return;
+  await evict(deviceChannel(deviceId), (s) => s.data?.userId === userId);
+  try {
+    io.to(userChannel(userId)).emit('device:revoked', { deviceId, reason });
+  } catch (err) {
+    console.error(`[Realtime] device:revoked to ${userId} failed`, err);
+  }
+}
+
+/**
+ * A device was deleted: every socket leaves its watcher and player channels and
+ * each former delegate receives `device:revoked { deviceId, reason: 'DEVICE_DELETED' }`.
+ * Never throws.
+ */
+export async function closeDevice(deviceId, delegateIds = []) {
+  if (!io) return;
+  await evict(deviceChannel(deviceId));
+  await evict(devicePlayerChannel(deviceId));
+  for (const userId of new Set(delegateIds)) {
+    try {
+      io.to(userChannel(userId)).emit('device:revoked', { deviceId, reason: 'DEVICE_DELETED' });
+    } catch (err) {
+      console.error(`[Realtime] device:revoked to ${userId} failed`, err);
+    }
+  }
+}
+
+/**
+ * A delegation was granted or its rights changed: the delegate's sockets receive
+ * `delegation:updated { deviceId, rights, active }`. Never throws.
+ */
+export function notifyDelegationUpdated(delegation) {
+  if (!io || !delegation) return;
+  const { deviceId, canPlayPause, canSkip, canVolume, active } = delegation;
+  const delegateId = delegation.delegate?.id ?? delegation.delegateId;
+  try {
+    io.to(userChannel(delegateId)).emit('delegation:updated', {
+      deviceId,
+      rights: { canPlayPause, canSkip, canVolume },
+      active,
+    });
+  } catch (err) {
+    console.error(`[Realtime] delegation:updated to ${delegateId} failed`, err);
+  }
 }

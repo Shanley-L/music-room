@@ -164,6 +164,11 @@ model User {
 
   refreshTokens        RefreshToken[]
   logs                 SystemLog[]
+
+  devices              Device[]
+  sentFriendRequests     Friendship[]        @relation("FriendshipRequester")
+  receivedFriendRequests Friendship[]        @relation("FriendshipAddressee")
+  receivedDelegations    ControlDelegation[]
 }
 
 model RefreshToken {
@@ -189,4 +194,60 @@ model SystemLog {
   ip         String?
   statusCode Int?
   createdAt  DateTime @default(now())
+}
+
+// Music Control Delegation (subject V.2.2): devices attached to an account,
+// friendships, and per-device control licenses granted to friends.
+
+model Device {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name           String
+  platform       String
+  installationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  delegations ControlDelegation[]
+
+  @@unique([userId, installationId])
+}
+
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+}
+
+model Friendship {
+  id          String           @id @default(cuid())
+  requesterId String
+  requester   User             @relation("FriendshipRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addresseeId String
+  addressee   User             @relation("FriendshipAddressee", fields: [addresseeId], references: [id], onDelete: Cascade)
+  status      FriendshipStatus @default(PENDING)
+  // Both user ids sorted and joined: one relation per pair, whatever its direction.
+  pairKey     String           @unique
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@unique([requesterId, addresseeId])
+  @@index([addresseeId, status])
+}
+
+model ControlDelegation {
+  id           String   @id @default(cuid())
+  deviceId     String
+  device       Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  delegateId   String
+  delegate     User     @relation(fields: [delegateId], references: [id], onDelete: Cascade)
+  canPlayPause Boolean  @default(true)
+  canSkip      Boolean  @default(true)
+  canVolume    Boolean  @default(true)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([deviceId, delegateId])
+  @@index([delegateId, active])
 }

@@ -47,3 +47,17 @@ export async function updateUserProfile(userId, data) {
 
   return sanitizeUser(updated, true);
 }
+
+/** Name search for adding friends: `{ id, name }` only, caller excluded, 20 max. */
+export async function searchUsers(query, requesterId) {
+  return prisma.user.findMany({
+    where: {
+      id: { not: requesterId },
+      // LIKE wildcards in the query are matched literally.
+      name: { contains: query.replace(/[\\%_]/g, '\\$&'), mode: 'insensitive' },
+    },
+    select: { id: true, name: true },
+    orderBy: { name: 'asc' },
+    take: 20,
+  });
+}

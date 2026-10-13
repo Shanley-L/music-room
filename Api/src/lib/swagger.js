@@ -12,7 +12,7 @@ const options = {
     info: {
       title: 'Music Room API',
       version: '1.0.0',
-      description: 'Documentation officielle de l\'API Music Room (Auth, Playlists, Salles, Deezer)',
+      description: 'Documentation officielle de l\'API Music Room (Auth, Playlists, Salles, Appareils et délégation, Amis, Deezer)',
     },
     servers: [
       {
