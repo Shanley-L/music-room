@@ -1,5 +1,10 @@
 import swaggerJsdoc from 'swagger-jsdoc';
 import swaggerUi from 'swagger-ui-express';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
+
+// Resolve route files relative to this module so docs work whatever the cwd is
+const srcDir = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 const options = {
   definition: {
@@ -35,7 +40,7 @@ const options = {
       { devHeader: [] },
     ],
   },
-  apis: ['./src/routes/*.js', './src/server.js'],
+  apis: [join(srcDir, 'routes/*.js'), join(srcDir, 'app.js')],
 };
 
 const swaggerSpec = swaggerJsdoc(options);

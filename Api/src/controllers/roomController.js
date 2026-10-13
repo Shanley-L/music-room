@@ -1,17 +1,90 @@
+import { z } from 'zod';
 import {
   createRoom,
   listPublicRooms,
+  listRoomsForUser,
   getRoomById,
   joinRoomByCode,
   inviteUser,
+  removeInvite as removeInviteService,
+  deleteRoom,
+  isUserAllowedInRoom,
+  sanitizeRoomForUser,
+  hasZone,
+  hasWindow,
 } from '../services/roomService.js';
 
+// Only date strings (e.g. ISO 8601) are accepted: null, numbers and booleans are rejected
+// instead of being coerced to 1970.
+function dateString(field) {
+  const message = `${field} doit être une date valide (ISO 8601)`;
+  return z
+    .string({ error: message })
+    .refine((s) => s.trim() !== '' && !Number.isNaN(Date.parse(s)), { message })
+    .transform((s) => new Date(s));
+}
+
+const createRoomSchema = z
+  .object({
+    name: z.string().trim().min(1, 'name est requis').max(100, 'name est trop long (100 max)'),
+    visibility: z.enum(['PUBLIC', 'PRIVATE']).optional(),
+    license: z.enum(['EVERYONE', 'INVITED_ONLY', 'GEO_TIME_RESTRICTED']).optional(),
+    latitude: z.number().min(-90).max(90).optional(),
+    longitude: z.number().min(-180).max(180).optional(),
+    radiusM: z.number().int().positive().max(2147483647).optional(),
+    voteStartAt: dateString('voteStartAt').optional(),
+    voteEndAt: dateString('voteEndAt').optional(),
+  })
+  .superRefine((data, ctx) => {
+    const zoneFields = [data.latitude, data.longitude, data.radiusM].filter((v) => v !== undefined);
+    if (zoneFields.length > 0 && zoneFields.length < 3) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'latitude, longitude et radiusM doivent être fournis ensemble',
+        path: ['radiusM'],
+      });
+    }
+    if (data.voteStartAt && data.voteEndAt && data.voteStartAt >= data.voteEndAt) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'voteStartAt doit précéder voteEndAt',
+        path: ['voteEndAt'],
+      });
+    }
+  });
+
+const inviteSchema = z.object({
+  userId: z.string().trim().min(1, 'userId est requis'),
+});
+
+const joinSchema = z.object({
+  inviteCode: z.string().trim().min(1, 'inviteCode est requis'),
+});
+
+function validationError(res, zodError) {
+  const message = zodError.issues[0]?.message || 'Entrée invalide';
+  return res.status(400).json({ error: message, code: 'VALIDATION_ERROR' });
+}
+
+function sendServiceError(res, result) {
+  return res.status(result.status).json({ error: result.error, code: result.code });
+}
+
 export async function create(req, res) {
-  const { name, visibility, license, latitude, longitude, radiusM, voteStartAt, voteEndAt } = req.body;
+  const parsed = createRoomSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return validationError(res, parsed.error);
 
-  if (!name) return res.status(400).json({ error: 'name est requis' });
-
+  const { name, visibility, license, latitude, longitude, radiusM, voteStartAt, voteEndAt } =
+    parsed.data;
   const geoOptions = { latitude, longitude, radiusM, voteStartAt, voteEndAt };
+
+  if (license === 'GEO_TIME_RESTRICTED' && !hasZone(geoOptions) && !hasWindow(geoOptions)) {
+    return res.status(400).json({
+      error: 'Une zone (latitude, longitude, radiusM) ou une plage horaire (voteStartAt, voteEndAt) est requise pour la licence GEO_TIME_RESTRICTED',
+      code: 'GEO_CONFIG_REQUIRED',
+    });
+  }
+
   const room = await createRoom({ name, visibility, license, ownerId: req.user.id, geoOptions });
 
   return res.status(201).json(room);
@@ -22,34 +95,58 @@ export async function listPublic(req, res) {
   return res.json(rooms);
 }
 
+export async function mine(req, res) {
+  const rooms = await listRoomsForUser(req.user.id);
+  return res.json(rooms);
+}
+
 export async function getOne(req, res) {
   const room = await getRoomById(req.params.id);
 
-  if (!room) return res.status(404).json({ error: 'Salle introuvable' });
+  if (!room) return res.status(404).json({ error: 'Salle introuvable', code: 'ROOM_NOT_FOUND' });
 
-  return res.json(room);
+  const allowed = await isUserAllowedInRoom(room, req.user.id);
+  if (!allowed) {
+    return res.status(403).json({ error: 'Accès refusé à cette salle', code: 'ROOM_FORBIDDEN' });
+  }
+
+  return res.json(sanitizeRoomForUser(room, req.user.id));
 }
 
 export async function join(req, res) {
-  const { inviteCode } = req.body;
+  const parsed = joinSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return validationError(res, parsed.error);
 
-  if (!inviteCode) return res.status(400).json({ error: 'inviteCode est requis' });
+  const result = await joinRoomByCode(parsed.data.inviteCode, req.user.id);
 
-  const result = await joinRoomByCode(inviteCode, req.user.id);
-
-  if (result.error) return res.status(result.status).json({ error: result.error });
+  if (result.error) return sendServiceError(res, result);
 
   return res.json(result.room);
 }
 
 export async function invite(req, res) {
-  const { userId } = req.body;
+  const parsed = inviteSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return validationError(res, parsed.error);
 
-  if (!userId) return res.status(400).json({ error: 'userId est requis' });
+  const result = await inviteUser(req.params.id, req.user.id, parsed.data.userId);
 
-  const result = await inviteUser(req.params.id, req.user.id, userId);
-
-  if (result.error) return res.status(result.status).json({ error: result.error });
+  if (result.error) return sendServiceError(res, result);
 
   return res.status(201).json(result.invite);
+}
+
+export async function removeInvite(req, res) {
+  const result = await removeInviteService(req.params.id, req.user.id, req.params.userId);
+
+  if (result.error) return sendServiceError(res, result);
+
+  return res.status(204).end();
+}
+
+export async function remove(req, res) {
+  const result = await deleteRoom(req.params.id, req.user.id);
+
+  if (result.error) return sendServiceError(res, result);
+
+  return res.status(204).end();
 }
