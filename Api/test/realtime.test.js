@@ -55,7 +55,7 @@ async function joinPlaylist(socket, playlistId) {
 async function createPlaylist(user, body = {}) {
   const res = await api('POST', '/api/playlists', {
     token: user.token,
-    body: { name: 'Playlist', ownerId: user.id, ...body },
+    body: { name: 'Playlist', ...body },
   });
   assert.equal(res.status, 201);
   return res.body.playlist;
@@ -70,7 +70,6 @@ async function addPlaylistTrack(user, playlistId) {
       externalId: `pl-ext-${playlistTrackCounter}`,
       title: `Morceau ${playlistTrackCounter}`,
       artist: 'Artiste',
-      addedBy: user.id,
     },
   });
   assert.equal(res.status, 201);
@@ -324,6 +323,7 @@ describe('playlists', () => {
     assert.deepEqual(afterAdd.tracks.map((t) => t.id), [t1.id, t2.id, t3.id]);
 
     const reorder = await api('PUT', `/api/playlists/${playlist.id}/tracks/reorder`, {
+      token: stranger.token,
       body: { trackIds: [t3.id, t1.id, t2.id] },
     });
     assert.equal(reorder.status, 200);
@@ -333,7 +333,9 @@ describe('playlists', () => {
       assert.deepEqual(ev.tracks.map((t) => t.position), [0, 1, 2]);
     }
 
-    const rm = await api('DELETE', `/api/playlists/${playlist.id}/tracks/${t1.id}`);
+    const rm = await api('DELETE', `/api/playlists/${playlist.id}/tracks/${t1.id}`, {
+      token: owner.token,
+    });
     assert.equal(rm.status, 200);
     const afterRm = await waitForEvent(
       b,
@@ -344,6 +346,7 @@ describe('playlists', () => {
     assert.deepEqual(afterRm.tracks.map((t) => t.position), [0, 1]);
 
     const upd = await api('PUT', `/api/playlists/${playlist.id}`, {
+      token: owner.token,
       body: { license: 'INVITED_ONLY', name: 'Renommée' },
     });
     assert.equal(upd.status, 200);
@@ -351,7 +354,7 @@ describe('playlists', () => {
     assert.equal(updated.playlistId, playlist.id);
     assert.equal(updated.playlist.license, 'INVITED_ONLY');
 
-    const del = await api('DELETE', `/api/playlists/${playlist.id}`);
+    const del = await api('DELETE', `/api/playlists/${playlist.id}`, { token: owner.token });
     assert.equal(del.status, 200);
     for (const socket of [a, b]) {
       assert.deepEqual(await waitForEvent(socket, 'playlist:deleted'), { playlistId: playlist.id });
@@ -376,7 +379,8 @@ describe('playlists', () => {
     assert.deepEqual(eventsFor(s, 'playlistId', playlist.id), []);
 
     const join = await api('POST', '/api/playlists/join', {
-      body: { inviteCode: playlist.inviteCode, userId: invitee.id },
+      token: invitee.token,
+      body: { inviteCode: playlist.inviteCode },
     });
     assert.equal(join.status, 200);
     const i = await connectSocket(invitee);
@@ -390,7 +394,10 @@ describe('playlists', () => {
     await joinPlaylist(s, playlist.id);
     await joinPlaylist(o, playlist.id);
 
-    const upd = await api('PUT', `/api/playlists/${playlist.id}`, { body: { visibility: 'PRIVATE' } });
+    const upd = await api('PUT', `/api/playlists/${playlist.id}`, {
+      token: owner.token,
+      body: { visibility: 'PRIVATE' },
+    });
     assert.equal(upd.status, 200);
     // The owner gets the update; the stranger is evicted before it is broadcast.
     await waitForEvent(o, 'playlist:updated', (p) => p.playlist.visibility === 'PRIVATE');
@@ -399,6 +406,33 @@ describe('playlists', () => {
     await waitForEvent(o, 'playlist:tracks-updated', (p) => p.playlistId === playlist.id);
     await sleep(QUIET_MS);
     assert.deepEqual(eventsFor(s, 'playlistId', playlist.id), []);
+  });
+
+  test('revoking an invite on a private playlist evicts the revoked user sockets', async () => {
+    const playlist = await createPlaylist(owner, { visibility: 'PRIVATE' });
+    const inv = await api('POST', `/api/playlists/${playlist.id}/invites`, {
+      token: owner.token,
+      body: { userId: invitee.id },
+    });
+    assert.equal(inv.status, 201);
+
+    const i = await connectSocket(invitee);
+    const o = await connectSocket(owner);
+    await joinPlaylist(i, playlist.id);
+    await joinPlaylist(o, playlist.id);
+
+    const rev = await api('DELETE', `/api/playlists/${playlist.id}/invites/${invitee.id}`, {
+      token: owner.token,
+    });
+    assert.equal(rev.status, 204);
+
+    await addPlaylistTrack(owner, playlist.id);
+    await waitForEvent(o, 'playlist:tracks-updated', (p) => p.playlistId === playlist.id);
+    await sleep(QUIET_MS);
+    assert.deepEqual(eventsFor(i, 'playlistId', playlist.id), []);
+
+    const rejoin = await emitAck(i, 'playlist:join', { playlistId: playlist.id });
+    assert.deepEqual(rejoin, { ok: false, code: 'PLAYLIST_FORBIDDEN' });
   });
 
   test('two concurrent reorders: both clients end on the final server order', async () => {
@@ -415,8 +449,14 @@ describe('playlists', () => {
     const orderA = [ids[3], ids[2], ids[1], ids[0]];
     const orderB = [ids[1], ids[3], ids[0], ids[2]];
     const [ra, rb] = await Promise.all([
-      api('PUT', `/api/playlists/${playlist.id}/tracks/reorder`, { body: { trackIds: orderA } }),
-      api('PUT', `/api/playlists/${playlist.id}/tracks/reorder`, { body: { trackIds: orderB } }),
+      api('PUT', `/api/playlists/${playlist.id}/tracks/reorder`, {
+        token: owner.token,
+        body: { trackIds: orderA },
+      }),
+      api('PUT', `/api/playlists/${playlist.id}/tracks/reorder`, {
+        token: stranger.token,
+        body: { trackIds: orderB },
+      }),
     ]);
     assert.equal(ra.status, 200);
     assert.equal(rb.status, 200);

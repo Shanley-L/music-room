@@ -4,6 +4,7 @@ import cors from 'cors';
 import { requestLogger } from './middleware/logger.js';
 import { standardApiLimiter } from './middleware/rateLimit.js';
 import { setupSwagger } from './lib/swagger.js';
+import { authMiddleware } from './middleware/auth.js';
 
 import authRoutes from './routes/authRoutes.js';
 import userRoutes from './routes/userRoutes.js';
@@ -33,7 +34,7 @@ setupSwagger(app);
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/deezer', deezerRoutes);
-app.use('/api/playlists', playlistRoutes);
+app.use('/api/playlists', authMiddleware, playlistRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api/rooms/:roomId/tracks', trackRoutes);
 

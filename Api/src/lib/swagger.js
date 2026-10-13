@@ -27,17 +27,10 @@ const options = {
           scheme: 'bearer',
           bearerFormat: 'JWT',
         },
-        devHeader: {
-          type: 'apiKey',
-          in: 'header',
-          name: 'x-dev-user-id',
-          description: 'Identifiant utilisateur en mode développement',
-        },
       },
     },
     security: [
       { bearerAuth: [] },
-      { devHeader: [] },
     ],
   },
   apis: [join(srcDir, 'routes/*.js'), join(srcDir, 'app.js')],

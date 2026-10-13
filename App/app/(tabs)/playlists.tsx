@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useApiConfig } from '../../contexts/ApiConfigContext';
+import { useAuthedFetch } from '../../hooks/use-authed-fetch';
 
 export type Playlist = {
   id: string;
@@ -33,7 +33,7 @@ export type Playlist = {
 
 export default function PlaylistsScreen() {
   const router = useRouter();
-  const { apiFetch } = useApiConfig();
+  const apiFetch = useAuthedFetch();
 
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,6 +62,9 @@ export default function PlaylistsScreen() {
 
       const response = await apiFetch(url);
       const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Impossible de charger les playlists');
+      }
       setPlaylists(data.playlists || []);
     } catch (error) {
       console.log('Error loading playlists:', error);
@@ -69,7 +72,7 @@ export default function PlaylistsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [activeFilter]);
+  }, [activeFilter, apiFetch]);
 
   useEffect(() => {
     setLoading(true);
@@ -134,7 +137,6 @@ export default function PlaylistsScreen() {
         method: 'POST',
         body: JSON.stringify({
           inviteCode: joinCode.trim().toUpperCase(),
-          userId: 'anonymous_user',
         }),
       });
 

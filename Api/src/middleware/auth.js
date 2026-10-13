@@ -25,13 +25,6 @@ export async function authMiddleware(req, res, next) {
       return next();
     }
 
-    // Dev fallback for backwards compatibility
-    const devUserId = req.headers['x-dev-user-id'];
-    if (devUserId) {
-      req.user = { id: devUserId, email: `${devUserId}@dev.local`, name: `Dev ${devUserId}` };
-      return next();
-    }
-
     return res.status(401).json({ error: 'Non authentifié : token manquant' });
   } catch (err) {
     if (err.name === 'TokenExpiredError') {
@@ -51,8 +44,6 @@ export async function optionalAuth(req, res, next) {
         const decoded = jwt.verify(token, JWT_SECRET);
         req.user = { id: decoded.sub, email: decoded.email, name: decoded.name };
       }
-    } else if (req.headers['x-dev-user-id']) {
-      req.user = { id: req.headers['x-dev-user-id'] };
     }
   } catch (e) {
     // ignore

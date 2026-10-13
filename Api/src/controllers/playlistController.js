@@ -1,6 +1,11 @@
 import prisma from '../lib/prisma.js';
 import crypto from 'crypto';
-import { isUserAllowedInPlaylist } from '../services/playlistService.js';
+import {
+  isUserAllowedInPlaylist,
+  canEditPlaylist,
+  isPlaylistOwner,
+  checkPlaylistAccess,
+} from '../services/playlistService.js';
 import {
   emitToPlaylist,
   emitPlaylistTracks,
@@ -33,6 +38,18 @@ function emitPlaylistUpdated(playlist) {
   });
 }
 
+/**
+ * Playlist as returned to `userId`: the invite code is only revealed to the owner
+ * (it grants an edit-capable invitation, so it must not leak through listings).
+ */
+function forViewer(playlist, userId) {
+  return { ...playlist, inviteCode: isPlaylistOwner(playlist, userId) ? playlist.inviteCode : null };
+}
+
+function sendError(res, { status, error, code }) {
+  return res.status(status).json({ error, code });
+}
+
 /** Prisma P2028: a locked transaction could not start or finish in time. */
 function sendIfBusy(res, error) {
   if (error?.code !== 'P2028') return false;
@@ -54,35 +71,34 @@ function generateInviteCode() {
  * GET /api/playlists
  * Query params:
  * - visibility: 'PUBLIC' | 'PRIVATE' (optional)
- * - userId: string (optional, to filter user's playlists/invites)
  * - q: string (optional, search by name)
+ * The caller comes from the JWT: public playlists + own + invited, never others' private ones.
  */
 export async function getPlaylists(req, res) {
   try {
-    const { visibility, userId, q } = req.query;
+    const { visibility, q } = req.query;
+    const userId = req.user.id;
 
     const where = {};
 
     if (q) {
-      where.name = { contains: q, mode: 'insensitive' };
+      where.name = { contains: String(q), mode: 'insensitive' };
     }
-
-    const effectiveUserId = userId || 'anonymous';
 
     if (visibility === 'PUBLIC') {
       where.visibility = 'PUBLIC';
     } else if (visibility === 'PRIVATE') {
       where.visibility = 'PRIVATE';
       where.OR = [
-        { ownerId: effectiveUserId },
-        { invites: { some: { userId: effectiveUserId } } },
+        { ownerId: userId },
+        { invites: { some: { userId: userId } } },
       ];
     } else {
       // Return public playlists + private playlists owned or invited
       where.OR = [
         { visibility: 'PUBLIC' },
-        { ownerId: effectiveUserId },
-        { invites: { some: { userId: effectiveUserId } } },
+        { ownerId: userId },
+        { invites: { some: { userId: userId } } },
       ];
     }
 
@@ -104,14 +120,14 @@ export async function getPlaylists(req, res) {
 
     return res.status(200).json({
       playlists: playlists.map((p) => ({
-        ...p,
+        ...forViewer(p, userId),
         trackCount: p._count.tracks,
         previewCovers: p.tracks.map((t) => t.coverUrl).filter(Boolean),
       })),
     });
   } catch (error) {
     console.error('getPlaylists error:', error);
-    return res.status(500).json({ error: error.message || 'Erreur interne' });
+    return res.status(500).json({ error: 'Erreur interne', code: 'INTERNAL_ERROR' });
   }
 }
 
@@ -121,7 +137,7 @@ export async function getPlaylists(req, res) {
 export async function getPlaylistById(req, res) {
   try {
     const { id } = req.params;
-    const { userId } = req.query;
+    const userId = req.user.id;
 
     const playlist = await prisma.playlist.findUnique({
       where: { id },
@@ -133,30 +149,19 @@ export async function getPlaylistById(req, res) {
       },
     });
 
-    if (!playlist) {
-      return res.status(404).json({ error: 'Playlist introuvable' });
-    }
+    // Visibility: a private playlist is only readable by its owner and invitees.
+    const denied = await checkPlaylistAccess(playlist, userId, 'read');
+    if (denied) return sendError(res, denied);
 
-    // Visibility check: if PRIVATE, check if user is owner or invited
-    if (userId && !(await isUserAllowedInPlaylist(playlist, userId))) {
-      return res.status(403).json({ error: 'Accès non autorisé à cette playlist privée' });
-    }
-
-    // Check edit permission
-    let canEdit = true;
-    if (playlist.license === 'INVITED_ONLY' && userId) {
-      const isOwner = playlist.ownerId === userId;
-      const isInvited = playlist.invites.some((inv) => inv.userId === userId && inv.canEdit);
-      canEdit = isOwner || isInvited;
-    }
+    const canEdit = await canEditPlaylist(playlist, userId);
 
     return res.status(200).json({
-      playlist,
+      playlist: forViewer(playlist, userId),
       canEdit,
     });
   } catch (error) {
     console.error('getPlaylistById error:', error);
-    return res.status(500).json({ error: error.message || 'Erreur interne' });
+    return res.status(500).json({ error: 'Erreur interne', code: 'INTERNAL_ERROR' });
   }
 }
 
@@ -165,10 +170,11 @@ export async function getPlaylistById(req, res) {
  */
 export async function createPlaylist(req, res) {
   try {
-    const { name, description, visibility, license, coverUrl, ownerId } = req.body;
+    // Any ownerId sent by the client is ignored: the owner is the authenticated caller.
+    const { name, description, visibility, license, coverUrl } = req.body ?? {};
 
-    if (!name || !name.trim()) {
-      return res.status(400).json({ error: 'Le nom de la playlist est obligatoire' });
+    if (typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ error: 'Le nom de la playlist est obligatoire', code: 'VALIDATION_ERROR' });
     }
 
     const inviteCode = generateInviteCode();
@@ -180,7 +186,7 @@ export async function createPlaylist(req, res) {
         visibility: visibility === 'PRIVATE' ? 'PRIVATE' : 'PUBLIC',
         license: license === 'INVITED_ONLY' ? 'INVITED_ONLY' : 'EVERYONE',
         coverUrl: coverUrl || null,
-        ownerId: ownerId || 'anonymous',
+        ownerId: req.user.id,
         inviteCode,
       },
     });
@@ -188,7 +194,7 @@ export async function createPlaylist(req, res) {
     return res.status(201).json({ playlist });
   } catch (error) {
     console.error('createPlaylist error:', error);
-    return res.status(500).json({ error: error.message || 'Erreur lors de la création' });
+    return res.status(500).json({ error: 'Erreur lors de la création', code: 'INTERNAL_ERROR' });
   }
 }
 
@@ -198,17 +204,17 @@ export async function createPlaylist(req, res) {
 export async function updatePlaylist(req, res) {
   try {
     const { id } = req.params;
-    const { name, description, visibility, license, coverUrl, expectedVersion } = req.body;
+    const { name, description, visibility, license, coverUrl, expectedVersion } = req.body ?? {};
 
     const existing = await prisma.playlist.findUnique({ where: { id } });
-    if (!existing) {
-      return res.status(404).json({ error: 'Playlist introuvable' });
-    }
+    const denied = await checkPlaylistAccess(existing, req.user.id, 'owner');
+    if (denied) return sendError(res, denied);
 
     // Optimistic concurrency check if expectedVersion is provided
     if (typeof expectedVersion === 'number' && existing.version !== expectedVersion) {
       return res.status(409).json({
         error: 'Conflit de version : la playlist a été modifiée par un autre utilisateur',
+        code: 'VERSION_CONFLICT',
         currentVersion: existing.version,
       });
     }
@@ -241,7 +247,7 @@ export async function updatePlaylist(req, res) {
     return res.status(200).json({ playlist: updated });
   } catch (error) {
     console.error('updatePlaylist error:', error);
-    return res.status(500).json({ error: error.message || 'Erreur lors de la mise à jour' });
+    return res.status(500).json({ error: 'Erreur lors de la mise à jour', code: 'INTERNAL_ERROR' });
   }
 }
 
@@ -252,6 +258,10 @@ export async function deletePlaylist(req, res) {
   try {
     const { id } = req.params;
 
+    const existing = await prisma.playlist.findUnique({ where: { id } });
+    const denied = await checkPlaylistAccess(existing, req.user.id, 'owner');
+    if (denied) return sendError(res, denied);
+
     await prisma.playlist.delete({ where: { id } });
 
     emitToPlaylist(id, 'playlist:deleted', { playlistId: id });
@@ -260,7 +270,7 @@ export async function deletePlaylist(req, res) {
     return res.status(200).json({ success: true, message: 'Playlist supprimée' });
   } catch (error) {
     console.error('deletePlaylist error:', error);
-    return res.status(500).json({ error: error.message || 'Erreur lors de la suppression' });
+    return res.status(500).json({ error: 'Erreur lors de la suppression', code: 'INTERNAL_ERROR' });
   }
 }
 
@@ -271,10 +281,13 @@ export async function deletePlaylist(req, res) {
 export async function addTrack(req, res) {
   try {
     const { id } = req.params;
-    const { externalId, title, artist, album, coverUrl, preview, duration, addedBy } = req.body;
+    const { externalId, title, artist, album, coverUrl, preview, duration } = req.body ?? {};
 
-    if (!externalId || !title || !artist) {
-      return res.status(400).json({ error: 'externalId, title et artist sont obligatoires' });
+    if (!externalId || typeof title !== 'string' || !title || typeof artist !== 'string' || !artist) {
+      return res.status(400).json({
+        error: 'externalId, title et artist sont obligatoires',
+        code: 'VALIDATION_ERROR',
+      });
     }
 
     const result = await prisma.$transaction(async (tx) => {
@@ -282,10 +295,11 @@ export async function addTrack(req, res) {
 
       const playlist = await tx.playlist.findUnique({
         where: { id },
-        include: { tracks: true },
+        include: { tracks: true, invites: true },
       });
 
-      if (!playlist) return { status: 404, body: { error: 'Playlist introuvable' } };
+      const denied = await checkPlaylistAccess(playlist, req.user.id, 'edit');
+      if (denied) return { status: denied.status, body: { error: denied.error, code: denied.code } };
 
       // Check for duplicates in playlist
       const isDuplicate = playlist.tracks.some(
@@ -295,7 +309,11 @@ export async function addTrack(req, res) {
       if (isDuplicate) {
         return {
           status: 409,
-          body: { error: 'Cette musique est déjà dans la playlist', isDuplicate: true },
+          body: {
+            error: 'Cette musique est déjà dans la playlist',
+            code: 'DUPLICATE_TRACK',
+            isDuplicate: true,
+          },
         };
       }
 
@@ -317,7 +335,7 @@ export async function addTrack(req, res) {
           preview: preview || null,
           duration: duration ? Number(duration) : null,
           position: newPosition,
-          addedBy: addedBy || 'anonymous',
+          addedBy: req.user.id,
         },
       });
       const updatedPlaylist = await tx.playlist.update({
@@ -346,7 +364,7 @@ export async function addTrack(req, res) {
   } catch (error) {
     if (sendIfBusy(res, error)) return;
     console.error('addTrack error:', error);
-    return res.status(500).json({ error: error.message || "Erreur lors de l'ajout du titre" });
+    return res.status(500).json({ error: "Erreur lors de l'ajout du titre", code: 'INTERNAL_ERROR' });
   }
 }
 
@@ -358,14 +376,20 @@ export async function removeTrack(req, res) {
   try {
     const { id, trackId } = req.params;
 
-    const found = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       await lockPlaylist(tx, id);
+
+      const playlist = await tx.playlist.findUnique({ where: { id }, include: { invites: true } });
+      const denied = await checkPlaylistAccess(playlist, req.user.id, 'edit');
+      if (denied) return denied;
 
       const track = await tx.playlistTrack.findUnique({
         where: { id: trackId },
       });
 
-      if (!track || track.playlistId !== id) return false;
+      if (!track || track.playlistId !== id) {
+        return { status: 404, error: 'Titre introuvable dans cette playlist', code: 'TRACK_NOT_FOUND' };
+      }
 
       // Delete the track
       await tx.playlistTrack.delete({ where: { id: trackId } });
@@ -391,12 +415,10 @@ export async function removeTrack(req, res) {
         data: { version: { increment: 1 } },
       });
 
-      return true;
+      return null;
     }, TX_OPTIONS);
 
-    if (!found) {
-      return res.status(404).json({ error: 'Titre introuvable dans cette playlist' });
-    }
+    if (result) return sendError(res, result);
 
     emitPlaylistTracks(id);
 
@@ -404,7 +426,7 @@ export async function removeTrack(req, res) {
   } catch (error) {
     if (sendIfBusy(res, error)) return;
     console.error('removeTrack error:', error);
-    return res.status(500).json({ error: error.message || 'Erreur lors de la suppression' });
+    return res.status(500).json({ error: 'Erreur lors de la suppression', code: 'INTERNAL_ERROR' });
   }
 }
 
@@ -416,10 +438,13 @@ export async function removeTrack(req, res) {
 export async function reorderTracks(req, res) {
   try {
     const { id } = req.params;
-    const { trackIds, expectedVersion } = req.body;
+    const { trackIds, expectedVersion } = req.body ?? {};
 
-    if (!Array.isArray(trackIds)) {
-      return res.status(400).json({ error: 'trackIds doit être un tableau d\'identifiants' });
+    if (!Array.isArray(trackIds) || !trackIds.every((t) => typeof t === 'string')) {
+      return res.status(400).json({
+        error: 'trackIds doit être un tableau d\'identifiants',
+        code: 'VALIDATION_ERROR',
+      });
     }
 
     // Atomic update of positions, serialized per playlist so concurrent reorders
@@ -429,10 +454,11 @@ export async function reorderTracks(req, res) {
 
       const playlist = await tx.playlist.findUnique({
         where: { id },
-        include: { tracks: true },
+        include: { tracks: true, invites: true },
       });
 
-      if (!playlist) return { status: 404, body: { error: 'Playlist introuvable' } };
+      const denied = await checkPlaylistAccess(playlist, req.user.id, 'edit');
+      if (denied) return { status: denied.status, body: { error: denied.error, code: denied.code } };
 
       // Optimistic Concurrency Conflict Detection
       if (typeof expectedVersion === 'number' && playlist.version !== expectedVersion) {
@@ -440,6 +466,7 @@ export async function reorderTracks(req, res) {
           status: 409,
           body: {
             error: 'Conflit de modification : un autre utilisateur a modifié la playlist en même temps',
+            code: 'VERSION_CONFLICT',
             currentVersion: playlist.version,
             currentTracks: playlist.tracks.sort((a, b) => a.position - b.position),
           },
@@ -478,21 +505,22 @@ export async function reorderTracks(req, res) {
   } catch (error) {
     if (sendIfBusy(res, error)) return;
     console.error('reorderTracks error:', error);
-    return res.status(500).json({ error: error.message || 'Erreur lors de la réorganisation' });
+    return res.status(500).json({ error: 'Erreur lors de la réorganisation', code: 'INTERNAL_ERROR' });
   }
 }
 
 /**
  * POST /api/playlists/join
- * Join private playlist by invite code
- * Body: { inviteCode: string, userId: string }
+ * Join a playlist by invite code; the invite is created for the authenticated caller.
+ * Body: { inviteCode: string }
  */
 export async function joinByCode(req, res) {
   try {
-    const { inviteCode, userId } = req.body;
+    const { inviteCode } = req.body ?? {};
+    const userId = req.user.id;
 
-    if (!inviteCode || !userId) {
-      return res.status(400).json({ error: 'inviteCode et userId sont requis' });
+    if (typeof inviteCode !== 'string' || !inviteCode.trim()) {
+      return res.status(400).json({ error: 'inviteCode est requis', code: 'VALIDATION_ERROR' });
     }
 
     const playlist = await prisma.playlist.findUnique({
@@ -500,28 +528,94 @@ export async function joinByCode(req, res) {
     });
 
     if (!playlist) {
-      return res.status(404).json({ error: 'Code d\'invitation invalide' });
+      return res.status(404).json({ error: "Code d'invitation invalide", code: 'INVALID_INVITE_CODE' });
     }
 
-    // Add invite
-    await prisma.playlistInvite.upsert({
-      where: {
-        playlistId_userId: {
-          playlistId: playlist.id,
-          userId,
-        },
-      },
-      create: {
-        playlistId: playlist.id,
-        userId,
-        canEdit: true,
-      },
-      update: {},
-    });
+    // The owner already has every right: no invite row for them.
+    if (!isPlaylistOwner(playlist, userId)) {
+      await prisma.playlistInvite.upsert({
+        where: { playlistId_userId: { playlistId: playlist.id, userId } },
+        create: { playlistId: playlist.id, userId, canEdit: true },
+        update: {},
+      });
+    }
 
-    return res.status(200).json({ playlist });
+    return res.status(200).json({ playlist: forViewer(playlist, userId) });
   } catch (error) {
     console.error('joinByCode error:', error);
-    return res.status(500).json({ error: error.message || 'Erreur lors de la liaison' });
+    return res.status(500).json({ error: 'Erreur lors de la liaison', code: 'INTERNAL_ERROR' });
+  }
+}
+
+/**
+ * POST /api/playlists/:id/invites (owner only)
+ * Body: { userId: string, canEdit?: boolean (default true) }
+ */
+export async function inviteUser(req, res) {
+  try {
+    const { id } = req.params;
+    const { userId, canEdit } = req.body ?? {};
+
+    if (typeof userId !== 'string' || !userId.trim()) {
+      return res.status(400).json({ error: 'userId est requis', code: 'VALIDATION_ERROR' });
+    }
+    if (canEdit !== undefined && typeof canEdit !== 'boolean') {
+      return res.status(400).json({ error: 'canEdit doit être un booléen', code: 'VALIDATION_ERROR' });
+    }
+
+    const playlist = await prisma.playlist.findUnique({ where: { id } });
+    const denied = await checkPlaylistAccess(playlist, req.user.id, 'owner');
+    if (denied) return sendError(res, denied);
+
+    if (userId === playlist.ownerId) {
+      return res.status(400).json({
+        error: 'Le propriétaire ne peut pas être invité à sa propre playlist',
+        code: 'VALIDATION_ERROR',
+      });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+    if (!user) {
+      return res.status(404).json({ error: 'Utilisateur introuvable', code: 'USER_NOT_FOUND' });
+    }
+
+    const invite = await prisma.playlistInvite.upsert({
+      where: { playlistId_userId: { playlistId: id, userId } },
+      create: { playlistId: id, userId, canEdit: canEdit ?? true },
+      update: canEdit === undefined ? {} : { canEdit },
+    });
+
+    return res.status(201).json({ invite });
+  } catch (error) {
+    console.error('inviteUser error:', error);
+    return res.status(500).json({ error: "Erreur lors de l'invitation", code: 'INTERNAL_ERROR' });
+  }
+}
+
+/**
+ * DELETE /api/playlists/:id/invites/:userId (owner only)
+ * A revoked user who loses access (private playlist) stops receiving playlist events.
+ */
+export async function removeInvite(req, res) {
+  try {
+    const { id, userId } = req.params;
+
+    const playlist = await prisma.playlist.findUnique({ where: { id } });
+    const denied = await checkPlaylistAccess(playlist, req.user.id, 'owner');
+    if (denied) return sendError(res, denied);
+
+    const { count } = await prisma.playlistInvite.deleteMany({ where: { playlistId: id, userId } });
+    if (count === 0) {
+      return res.status(404).json({ error: 'Invitation introuvable', code: 'INVITE_NOT_FOUND' });
+    }
+
+    if (!(await isUserAllowedInPlaylist(playlist, userId))) {
+      await evictFromPlaylist(id, (socket) => socket.data?.userId === userId);
+    }
+
+    return res.status(204).end();
+  } catch (error) {
+    console.error('removeInvite error:', error);
+    return res.status(500).json({ error: "Erreur lors de la révocation", code: 'INTERNAL_ERROR' });
   }
 }

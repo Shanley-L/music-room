@@ -79,6 +79,7 @@ Les réordonnancements de playlist sont sérialisés côté serveur (verrou cons
 ## Révocation
 
 - Retrait d'une invitation (`DELETE /api/rooms/:id/invites/:userId`) : si l'utilisateur n'a plus accès à la salle (salle privée), ses sockets quittent le canal et ne reçoivent plus rien. Sur une salle publique, il garde l'accès et reste abonné.
+- Retrait d'une invitation à une playlist (`DELETE /api/playlists/:id/invites/:userId`) : même règle, sur une playlist privée les sockets de l'utilisateur révoqué quittent le canal.
 - Suppression d'une salle ou d'une playlist : `room:deleted` / `playlist:deleted` est envoyé puis tous les sockets quittent le canal.
 - Passage d'une playlist en privé : les sockets des utilisateurs qui ne sont ni propriétaire ni invités quittent le canal **avant** la diffusion de `playlist:updated`.
 - Un échec d'éviction (Redis indisponible...) est journalisé mais ne transforme jamais une écriture validée en erreur 500.

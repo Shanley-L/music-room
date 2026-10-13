@@ -14,7 +14,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { DeezerTrack } from '../app/(tabs)/home';
 import { Playlist } from '../app/(tabs)/playlists';
-import { useApiConfig } from '../contexts/ApiConfigContext';
+import { useAuthedFetch } from '../hooks/use-authed-fetch';
 
 export function AddToPlaylistModal({
   visible,
@@ -30,18 +30,22 @@ export function AddToPlaylistModal({
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [loading, setLoading] = useState(true);
   const [addingId, setAddingId] = useState<string | null>(null);
-  const { apiFetch } = useApiConfig();
+  const apiFetch = useAuthedFetch();
 
   useEffect(() => {
     if (visible) {
       setLoading(true);
       apiFetch('/api/playlists')
-        .then((res) => res.json())
+        .then(async (res) => {
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Impossible de charger les playlists');
+          return data;
+        })
         .then((data) => setPlaylists(data.playlists || []))
         .catch((err) => console.log('Error fetching playlists:', err))
         .finally(() => setLoading(false));
     }
-  }, [visible]);
+  }, [visible, apiFetch]);
 
   const handleSelectPlaylist = async (playlist: Playlist) => {
     if (!track || addingId) return;

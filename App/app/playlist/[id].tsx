@@ -17,6 +17,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAudio } from '../../contexts/AudioContext';
 import { useApiConfig } from '../../contexts/ApiConfigContext';
+import { useAuthedFetch } from '../../hooks/use-authed-fetch';
 import { MediaController } from '../../components/mediaController';
 import { DeezerTrack } from '../(tabs)/home';
 
@@ -56,7 +57,8 @@ export default function PlaylistEditorScreen() {
 
   // Global Audio Playback
   const { currentTrack, isPlaying, playTrack, togglePlay } = useAudio();
-  const { apiFetch } = useApiConfig();
+  const { apiFetch: publicFetch } = useApiConfig();
+  const apiFetch = useAuthedFetch();
 
   // Add Track Search Modal
   const [searchModalVisible, setSearchModalVisible] = useState(false);
@@ -75,6 +77,11 @@ export default function PlaylistEditorScreen() {
       const response = await apiFetch(`/api/playlists/${id}`);
       const data = await response.json();
 
+      if (response.status === 403 || response.status === 404) {
+        // Private playlist without access (or deleted): nothing to show.
+        setPlaylist(null);
+        throw new Error(data.error || 'Accès non autorisé à cette playlist');
+      }
       if (!response.ok) {
         throw new Error(data.error || 'Impossible de charger la playlist');
       }
@@ -87,7 +94,7 @@ export default function PlaylistEditorScreen() {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, apiFetch]);
 
   useEffect(() => {
     fetchPlaylist();
@@ -122,7 +129,7 @@ export default function PlaylistEditorScreen() {
 
     setSearching(true);
     try {
-      const res = await apiFetch(
+      const res = await publicFetch(
         `/api/deezer/search?q=${encodeURIComponent(term.trim())}`
       );
       const json = await res.json();
@@ -294,7 +301,8 @@ export default function PlaylistEditorScreen() {
         method: 'DELETE',
       });
       if (!res.ok) {
-        throw new Error('Erreur lors de la suppression');
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Erreur lors de la suppression');
       }
       handleGoBack();
     } catch (err: any) {

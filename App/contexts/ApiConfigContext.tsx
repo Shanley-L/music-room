@@ -60,7 +60,8 @@ export const ApiConfigProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       ...(options.headers as Record<string, string>),
     };
 
-    if (token) {
+    // An explicit Authorization header (e.g. from AuthContext) wins over the stored token.
+    if (token && !headers['Authorization']) {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
