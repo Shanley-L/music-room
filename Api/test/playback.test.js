@@ -55,7 +55,8 @@ describe('owner-only control', () => {
     }
     const state = await getState(member, room.id);
     assert.equal(state.status, 200);
-    assert.equal(state.body.status, 'IDLE');
+    // Live chain: the first suggestion starts the room by itself.
+    assert.equal(state.body.status, 'PLAYING');
     assert.ok(state.body.serverTime);
   });
 
@@ -74,43 +75,43 @@ describe('owner-only control', () => {
 });
 
 describe('play, votes and queue', () => {
-  test('play promotes the highest-voted track, votes only reorder queued tracks', async () => {
+  test('first suggestion autostarts; votes only reorder queued tracks; skip promotes the top', async () => {
     const room = await createRoom(owner, { name: 'Votes' });
     const a = await suggestTrack(owner, room.id);
     const b = await suggestTrack(member, room.id);
     const c = await suggestTrack(member, room.id);
+
+    const first = await getState(member, room.id);
+    assert.equal(first.body.status, 'PLAYING');
+    assert.equal(first.body.currentTrack.id, a.id);
+    assert.equal(first.body.currentTrack.durationMs, 30000);
+    assert.ok(first.body.startedAt);
+
     await vote(member, room.id, c.id);
     await vote(invitee, room.id, c.id);
     await vote(member, room.id, b.id);
 
-    const played = await pb(owner, room.id, 'play');
-    assert.equal(played.status, 200);
-    assert.equal(played.body.status, 'PLAYING');
-    assert.equal(played.body.currentTrack.id, c.id);
-    assert.equal(played.body.currentTrack.durationMs, 30000);
-    assert.ok(played.body.startedAt);
-
     // Playing track is out of the queue and cannot be voted.
     let queue = await queueOf(member, room.id);
-    assert.deepEqual(queue.map((t) => t.id), [b.id, a.id]);
+    assert.deepEqual(queue.map((t) => t.id), [c.id, b.id]);
     queue.forEach((t, i) => assert.equal(t.position, i + 1));
-    const onPlaying = await vote(owner, room.id, c.id);
+    const onPlaying = await vote(owner, room.id, a.id);
     assert.equal(onPlaying.status, 409);
     assert.equal(onPlaying.body.code, 'TRACK_NOT_QUEUED');
 
     // Votes during playback reorder the queued tracks only.
-    await vote(owner, room.id, a.id);
-    await vote(invitee, room.id, a.id);
+    await vote(owner, room.id, b.id);
+    await vote(invitee, room.id, b.id);
     queue = await queueOf(member, room.id);
-    assert.deepEqual(queue.map((t) => t.id), [a.id, b.id]);
-    assert.equal((await getState(member, room.id)).body.currentTrack.id, c.id);
+    assert.deepEqual(queue.map((t) => t.id), [b.id, c.id]);
+    assert.equal((await getState(member, room.id)).body.currentTrack.id, a.id);
 
     // The playing track cannot be deleted, skip moves on.
-    const del = await api('DELETE', `/api/rooms/${room.id}/tracks/${c.id}`, { token: owner.token });
+    const del = await api('DELETE', `/api/rooms/${room.id}/tracks/${a.id}`, { token: owner.token });
     assert.equal(del.status, 409);
     const skipped = await pb(owner, room.id, 'skip');
-    assert.equal(skipped.body.currentTrack.id, a.id);
-    assert.deepEqual((await queueOf(member, room.id)).map((t) => t.id), [b.id]);
+    assert.equal(skipped.body.currentTrack.id, b.id);
+    assert.deepEqual((await queueOf(member, room.id)).map((t) => t.id), [c.id]);
   });
 
   test('skip on an empty queue goes IDLE; a played track can be suggested again', async () => {
@@ -235,7 +236,6 @@ describe('pause and resume', () => {
 describe('realtime', () => {
   test('playback:updated reaches a non-owner client and is in the join snapshot', async () => {
     const room = await createRoom(owner, { name: 'Live' });
-    const a = await suggestTrack(owner, room.id);
     const socket = await connectSocket(member);
     const ack = await emitAck(socket, 'room:join', { roomId: room.id });
     assert.equal(ack.ok, true);
@@ -243,7 +243,7 @@ describe('realtime', () => {
     assert.ok(ack.playback.serverTime);
 
     const update = waitForEvent(socket, 'playback:updated', (p) => p.status === 'PLAYING');
-    await pb(owner, room.id, 'play');
+    const a = await suggestTrack(owner, room.id);
     const payload = await update;
     assert.equal(payload.roomId, room.id);
     assert.equal(payload.currentTrack.id, a.id);

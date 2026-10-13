@@ -86,7 +86,7 @@ router.post('/play', playbackLimiter, play);
  * /api/rooms/{roomId}/playback/pause:
  *   post:
  *     summary: Mettre en pause (propriétaire)
- *     description: Fige la position. Déjà en pause : sans effet.
+ *     description: "Fige la position. Déjà en pause, sans effet."
  *     tags: [Rooms]
  *     parameters:
  *       - { in: path, name: roomId, required: true, schema: { type: string } }
@@ -108,7 +108,7 @@ router.post('/pause', playbackLimiter, pause);
  * /api/rooms/{roomId}/playback/resume:
  *   post:
  *     summary: Reprendre la lecture (propriétaire)
- *     description: Reprend à la position figée. Déjà en lecture : sans effet.
+ *     description: Reprend à la position figée. Déjà en lecture , sans effet.
  *     tags: [Rooms]
  *     parameters:
  *       - { in: path, name: roomId, required: true, schema: { type: string } }
@@ -130,7 +130,7 @@ router.post('/resume', playbackLimiter, resume);
  * /api/rooms/{roomId}/playback/skip:
  *   post:
  *     summary: Passer au titre suivant (propriétaire)
- *     description: Marque le titre courant comme joué et joue la tête de file, ou revient au repos si la file est vide. Au repos : sans effet.
+ *     description: Marque le titre courant comme joué et joue la tête de file, ou revient au repos si la file est vide. Au repos , sans effet.
  *     tags: [Rooms]
  *     parameters:
  *       - { in: path, name: roomId, required: true, schema: { type: string } }

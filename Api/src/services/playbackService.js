@@ -196,3 +196,14 @@ export function ended(roomId, trackId) {
     return true;
   });
 }
+
+/**
+ * Live chain: when the room is idle and a track is suggested, it starts right away
+ * so the room never sits silent. No-op when something is already playing or paused.
+ */
+export function autoStartIfIdle(roomId) {
+  return transact(roomId, async (tx, room, now) => {
+    if (room.playbackStatus !== 'IDLE') return false;
+    return startHead(tx, roomId, now);
+  });
+}

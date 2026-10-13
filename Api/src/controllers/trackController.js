@@ -7,7 +7,8 @@ import {
   deleteTrack,
 } from '../services/trackService.js';
 import { getRoomById, isUserAllowedInRoom, canVote } from '../services/roomService.js';
-import { emitToRoom, emitRoomQueue } from '../lib/realtime.js';
+import { emitToRoom, emitRoomQueue, emitRoomPlayback } from '../lib/realtime.js';
+import { autoStartIfIdle } from '../services/playbackService.js';
 
 const suggestSchema = z.object({
   externalId: z
@@ -86,6 +87,13 @@ export async function suggest(req, res) {
 
   const { roomId } = req.params;
   emitToRoom(roomId, 'track:suggested', { roomId, track: result.track });
+
+  try {
+    const started = await autoStartIfIdle(roomId);
+    if (started.changed) emitRoomPlayback(roomId);
+  } catch (err) {
+    console.error('[Playback] autostart failed', err);
+  }
   emitRoomQueue(roomId);
 
   return res.status(201).json(result.track);
