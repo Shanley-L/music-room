@@ -1,0 +1,14 @@
+{
+  "name": "music-room-load-tests",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Suite de tests de charge pour Music Room (k6, ab, autocannon)",
+  "scripts": {
+    "test:k6": "./run-k6.sh",
+    "test:ab": "./ab-test.sh",
+    "test:autocannon": "node autocannon-suite.js"
+  },
+  "dependencies": {
+    "autocannon": "^8.0.0"
+  }
+}

@@ -79,9 +79,9 @@
 - [x] Mises à jour temps réel via WebSocket
 
 ### Tests de charge (obligatoires)
-- [ ] Script **k6** (ou Apache Benchmark) pour les 3 services simultanément
-- [ ] Mesure du nombre maximum d'utilisateurs simultanés
-- [ ] Documentation des specs serveur (CPU, RAM, type d'hébergement)
+- [x] Script **k6** (ou Apache Benchmark) pour les 3 services simultanément
+- [x] Mesure du nombre maximum d'utilisateurs simultanés
+- [x] Documentation des specs serveur (CPU, RAM, type d'hébergement)
 
 ---
 

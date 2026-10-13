@@ -1,0 +1,10 @@
+{
+  "apiUrl": "http://localhost:3000",
+  "email": "benchmark@musicroom.test",
+  "password": "Benchmark123!",
+  "userId": "cmv6qddn000006pnt97wlcqm8",
+  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjbXY2cWRkbjAwMDAwNnBudDk3d2xjcW04IiwiZW1haWwiOiJiZW5jaG1hcmtAbXVzaWNyb29tLnRlc3QiLCJpYXQiOjE3OTE4OTg5NTMsImV4cCI6MTc5MTk4NTM1M30.LzXa_sN5akHoj4l32AAnsZoBtVPWPDegcZQdC9AGNa8",
+  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjbXY2cWRkbjAwMDAwNnBudDk3d2xjcW04IiwiZW1haWwiOiJiZW5jaG1hcmtAbXVzaWNyb29tLnRlc3QiLCJpYXQiOjE3OTE4OTg5NTMsImV4cCI6MTc5MjUwMzc1M30.jLqPYLFOZA80SMjMIMIF0Eo3RWCrMv0Ud9bXjdcorVo",
+  "playlistId": "cmv6qddnp00026pntl9d64pu8",
+  "roomId": "cmv6qddo000046pntj23k4ly3"
+}
