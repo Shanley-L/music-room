@@ -13,7 +13,7 @@ import {
   hasZone,
   hasWindow,
 } from '../services/roomService.js';
-import { emitToRoom, evictFromRoom } from '../lib/realtime.js';
+import { emitToRoom, evictFromRoom, revokeRoomAccess } from '../lib/realtime.js';
 
 // Only date strings (e.g. ISO 8601) are accepted: null, numbers and booleans are rejected
 // instead of being coerced to 1970.
@@ -141,10 +141,11 @@ export async function removeInvite(req, res) {
 
   if (result.error) return sendServiceError(res, result);
 
-  // Realtime: a revoked user who no longer has access stops receiving room events.
+  // Realtime: a revoked user who no longer has access gets `room:revoked` and
+  // stops receiving room events.
   const room = await getRoomById(req.params.id);
   if (room && !(await isUserAllowedInRoom(room, req.params.userId))) {
-    await evictFromRoom(req.params.id, req.params.userId);
+    await revokeRoomAccess(req.params.id, req.params.userId);
   }
 
   return res.status(204).end();

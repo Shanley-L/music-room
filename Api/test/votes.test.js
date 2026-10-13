@@ -83,6 +83,30 @@ describe('basic voting', () => {
     assert.equal(unAgain.body.code, 'VOTE_NOT_FOUND');
   });
 
+  test('hasVoted is computed per caller on GET tracks and vote/unvote responses', async () => {
+    const room = await createRoom(owner, { name: 'A voté' });
+    const t1 = await suggestTrack(owner, room.id);
+    const t2 = await suggestTrack(owner, room.id);
+
+    const byId = (queue) => Object.fromEntries(queue.map((t) => [t.id, t.hasVoted]));
+
+    const v = await vote(stranger, room.id, t2.id);
+    assert.equal(v.status, 200);
+    assert.equal(v.body.track.hasVoted, true);
+    assert.deepEqual(byId(v.body.queue), { [t1.id]: false, [t2.id]: true });
+
+    const mine = await api('GET', `/api/rooms/${room.id}/tracks`, { token: stranger.token });
+    assert.deepEqual(byId(mine.body), { [t1.id]: false, [t2.id]: true });
+    const theirs = await api('GET', `/api/rooms/${room.id}/tracks`, { token: owner.token });
+    assert.deepEqual(byId(theirs.body), { [t1.id]: false, [t2.id]: false });
+
+    const un = await api('DELETE', `/api/rooms/${room.id}/tracks/${t2.id}/vote`, {
+      token: stranger.token,
+    });
+    assert.equal(un.status, 200);
+    assert.deepEqual(byId(un.body.queue), { [t1.id]: false, [t2.id]: false });
+  });
+
   test('unknown track returns 404', async () => {
     const room = await createRoom(owner, { name: 'Inconnu' });
     const res = await vote(owner, room.id, 'nope');

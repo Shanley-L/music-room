@@ -46,7 +46,7 @@ Règles d'accès (identiques à REST) :
 - Salle : publique pour tous ; privée pour le propriétaire et les invités (`isUserAllowedInRoom`).
 - Playlist : publique pour tous ; privée pour le propriétaire et les invités (`isUserAllowedInPlaylist`).
 
-Canaux internes : `room:<id>`, `playlist:<id>`, `device:<id>` (observateurs d'un appareil), `device-player:<id>` (lecteur de l'appareil) et `user:<id>` (tous les sockets d'un utilisateur).
+Canaux internes : `room:<id>`, `playlist:<id>`, `device:<id>` (observateurs d'un appareil), `device-player:<id>` (lecteur de l'appareil) et `user:<id>` (tous les sockets d'un utilisateur : `room:revoked`, `playlist:revoked`, `delegation:updated`, `device:revoked`).
 
 ## Événements (serveur vers client)
 
@@ -59,6 +59,9 @@ Canaux internes : `room:<id>`, `playlist:<id>`, `device:<id>` (observateurs d'un
 | `vote:changed` | `{ roomId, trackId, voteCount }` | `POST` / `DELETE /api/rooms/:roomId/tracks/:trackId/vote` |
 | `queue:updated` | `{ roomId, queue }` (file complète, triée par `position`) | toutes les écritures ci-dessus |
 | `room:deleted` | `{ roomId }` | `DELETE /api/rooms/:id` |
+| `room:revoked` | `{ roomId }`, envoyé au canal `user:<id>` de l'utilisateur qui perd l'accès | `DELETE /api/rooms/:id/invites/:userId` sur une salle privée |
+
+`queue:updated` est partagé par tous les clients de la salle : ses titres ne portent **pas** `hasVoted`. Ce champ (booléen : l'appelant a voté pour ce titre) n'existe que dans les réponses REST `GET /api/rooms/:roomId/tracks`, `POST` et `DELETE /api/rooms/:roomId/tracks/:trackId/vote`. Un client qui reçoit `queue:updated` conserve son propre ensemble de votes (issu de ces réponses) ou refait un `GET`.
 
 ### Playlists (Playlist Editor)
 
@@ -67,6 +70,7 @@ Canaux internes : `room:<id>`, `playlist:<id>`, `device:<id>` (observateurs d'un
 | `playlist:tracks-updated` | `{ playlistId, tracks }` (liste complète, triée par `position`) | ajout, suppression, réordonnancement de titres |
 | `playlist:updated` | `{ playlistId, playlist }` (champs publics uniquement : `id, name, description, visibility, license, coverUrl, version, ownerId, createdAt, updatedAt` ; jamais `inviteCode` ni `invites`) | `PUT /api/playlists/:id` (nom, visibilité, licence...), ajout du premier titre avec pochette |
 | `playlist:deleted` | `{ playlistId }` | `DELETE /api/playlists/:id` |
+| `playlist:revoked` | `{ playlistId }`, envoyé au canal `user:<id>` de chaque utilisateur qui perd l'accès | `DELETE /api/playlists/:id/invites/:userId` sur une playlist privée ; `PUT /api/playlists/:id` passant la playlist en privé (abonnés ni propriétaire ni invités) |
 
 `queue:updated` et `playlist:tracks-updated` relisent l'état en base au moment de la diffusion, en série par canal : le dernier événement reçu reflète le dernier état validé, même quand des écritures concurrentes se terminent dans le désordre. Les clients doivent donc **remplacer** leur état local par le payload reçu.
 
@@ -123,10 +127,11 @@ Règles :
 
 ## Révocation
 
-- Retrait d'une invitation (`DELETE /api/rooms/:id/invites/:userId`) : si l'utilisateur n'a plus accès à la salle (salle privée), ses sockets quittent le canal et ne reçoivent plus rien. Sur une salle publique, il garde l'accès et reste abonné.
-- Retrait d'une invitation à une playlist (`DELETE /api/playlists/:id/invites/:userId`) : même règle, sur une playlist privée les sockets de l'utilisateur révoqué quittent le canal.
+- Retrait d'une invitation (`DELETE /api/rooms/:id/invites/:userId`) : si l'utilisateur n'a plus accès à la salle (salle privée), tous ses sockets reçoivent `room:revoked { roomId }` (canal `user:<id>`), puis ceux abonnés quittent le canal et ne reçoivent plus rien. Sur une salle publique, il garde l'accès, reste abonné et ne reçoit pas `room:revoked`.
+- Retrait d'une invitation à une playlist (`DELETE /api/playlists/:id/invites/:userId`) : même règle, sur une playlist privée l'utilisateur révoqué reçoit `playlist:revoked { playlistId }` puis ses sockets quittent le canal.
 - Suppression d'une salle ou d'une playlist : `room:deleted` / `playlist:deleted` est envoyé puis tous les sockets quittent le canal.
-- Passage d'une playlist en privé : les sockets des utilisateurs qui ne sont ni propriétaire ni invités quittent le canal **avant** la diffusion de `playlist:updated`.
+- Passage d'une playlist en privé : chaque utilisateur abonné qui n'est ni propriétaire ni invité reçoit `playlist:revoked { playlistId }`, puis ses sockets quittent le canal, **avant** la diffusion de `playlist:updated`.
+- À la réception de `room:revoked` / `playlist:revoked`, le client quitte l'écran correspondant : il n'a plus accès (REST répondra 403).
 - Un échec d'éviction (Redis indisponible...) est journalisé mais ne transforme jamais une écriture validée en erreur 500.
 - L'accès est revérifié juste après l'entrée dans un canal, pour couvrir une révocation concurrente.
 - Révocation d'une délégation (`DELETE /api/devices/:id/delegations/:userId`) ou fin d'amitié (`DELETE /api/friends/:userId`, qui supprime les délégations dans les deux sens) : les sockets du délégué quittent `device:<id>` (plus aucun `device:state`), puis reçoivent `device:revoked`. Leur commande suivante est refusée (`DELEGATION_FORBIDDEN`).

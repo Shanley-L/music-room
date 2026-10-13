@@ -64,7 +64,7 @@ export async function listTracks(req, res) {
   const room = await checkRoomAccess(req, res);
   if (!room) return;
 
-  const tracks = await getTracksForRoom(req.params.roomId);
+  const tracks = await getTracksForRoom(req.params.roomId, req.user.id);
   return res.json(tracks);
 }
 

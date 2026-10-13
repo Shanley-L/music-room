@@ -175,6 +175,8 @@ describe('rooms', () => {
       );
       assert.deepEqual(updated.queue.map((t) => t.id), [t2.id, t1.id]);
       assert.deepEqual(updated.queue.map((t) => t.position), [1, 2]);
+      // hasVoted is per user: never part of the shared broadcast.
+      assert.ok(updated.queue.every((t) => !('hasVoted' in t)));
     }
 
     const un = await api('DELETE', `/api/rooms/${room.id}/tracks/${t2.id}/vote`, {
@@ -247,11 +249,17 @@ describe('rooms', () => {
       token: owner.token,
     });
     assert.equal(revoke.status, 204);
+    const revoked = await waitForEvent(i, 'room:revoked', (p) => p.roomId === room.id);
+    assert.deepEqual(revoked, { roomId: room.id });
 
     await suggestTrack(owner, room.id);
     await waitForEvent(o, 'track:suggested', (p) => p.roomId === room.id);
     await sleep(QUIET_MS);
-    assert.deepEqual(eventsFor(i, 'roomId', room.id), []);
+    assert.deepEqual(
+      eventsFor(i, 'roomId', room.id).map((r) => r.event),
+      ['room:revoked']
+    );
+    assert.equal(o.received.filter((r) => r.event === 'room:revoked').length, 0);
 
     const rejoin = await emitAck(i, 'room:join', { roomId: room.id });
     assert.deepEqual(rejoin, { ok: false, code: 'ROOM_FORBIDDEN' });
@@ -273,6 +281,7 @@ describe('rooms', () => {
 
     await suggestTrack(owner, room.id);
     await waitForEvent(i, 'track:suggested', (p) => p.roomId === room.id);
+    assert.equal(i.received.filter((r) => r.event === 'room:revoked').length, 0);
   });
 
   test('room deletion sends room:deleted and empties the channel', async () => {
@@ -399,13 +408,19 @@ describe('playlists', () => {
       body: { visibility: 'PRIVATE' },
     });
     assert.equal(upd.status, 200);
-    // The owner gets the update; the stranger is evicted before it is broadcast.
+    // The owner gets the update; the stranger is told and evicted before it is broadcast.
     await waitForEvent(o, 'playlist:updated', (p) => p.playlist.visibility === 'PRIVATE');
+    const revoked = await waitForEvent(s, 'playlist:revoked', (p) => p.playlistId === playlist.id);
+    assert.deepEqual(revoked, { playlistId: playlist.id });
+    assert.equal(o.received.filter((r) => r.event === 'playlist:revoked').length, 0);
 
     await addPlaylistTrack(owner, playlist.id);
     await waitForEvent(o, 'playlist:tracks-updated', (p) => p.playlistId === playlist.id);
     await sleep(QUIET_MS);
-    assert.deepEqual(eventsFor(s, 'playlistId', playlist.id), []);
+    assert.deepEqual(
+      eventsFor(s, 'playlistId', playlist.id).map((r) => r.event),
+      ['playlist:revoked']
+    );
   });
 
   test('revoking an invite on a private playlist evicts the revoked user sockets', async () => {
@@ -425,14 +440,60 @@ describe('playlists', () => {
       token: owner.token,
     });
     assert.equal(rev.status, 204);
+    const revoked = await waitForEvent(i, 'playlist:revoked', (p) => p.playlistId === playlist.id);
+    assert.deepEqual(revoked, { playlistId: playlist.id });
 
     await addPlaylistTrack(owner, playlist.id);
     await waitForEvent(o, 'playlist:tracks-updated', (p) => p.playlistId === playlist.id);
     await sleep(QUIET_MS);
-    assert.deepEqual(eventsFor(i, 'playlistId', playlist.id), []);
+    assert.deepEqual(
+      eventsFor(i, 'playlistId', playlist.id).map((r) => r.event),
+      ['playlist:revoked']
+    );
 
     const rejoin = await emitAck(i, 'playlist:join', { playlistId: playlist.id });
     assert.deepEqual(rejoin, { ok: false, code: 'PLAYLIST_FORBIDDEN' });
+  });
+
+  test('making a playlist private keeps invited subscribers (no playlist:revoked)', async () => {
+    const playlist = await createPlaylist(owner);
+    const inv = await api('POST', `/api/playlists/${playlist.id}/invites`, {
+      token: owner.token,
+      body: { userId: invitee.id },
+    });
+    assert.equal(inv.status, 201);
+    const i = await connectSocket(invitee);
+    await joinPlaylist(i, playlist.id);
+
+    const upd = await api('PUT', `/api/playlists/${playlist.id}`, {
+      token: owner.token,
+      body: { visibility: 'PRIVATE' },
+    });
+    assert.equal(upd.status, 200);
+    await waitForEvent(i, 'playlist:updated', (p) => p.playlist.visibility === 'PRIVATE');
+
+    await addPlaylistTrack(owner, playlist.id);
+    await waitForEvent(i, 'playlist:tracks-updated', (p) => p.playlistId === playlist.id);
+    assert.equal(i.received.filter((r) => r.event === 'playlist:revoked').length, 0);
+  });
+
+  test('revoking an invite on a public playlist keeps the user subscribed (no playlist:revoked)', async () => {
+    const playlist = await createPlaylist(owner);
+    await api('POST', `/api/playlists/${playlist.id}/invites`, {
+      token: owner.token,
+      body: { userId: invitee.id },
+    });
+    const i = await connectSocket(invitee);
+    await joinPlaylist(i, playlist.id);
+
+    const rev = await api('DELETE', `/api/playlists/${playlist.id}/invites/${invitee.id}`, {
+      token: owner.token,
+    });
+    assert.equal(rev.status, 204);
+
+    await addPlaylistTrack(owner, playlist.id);
+    await waitForEvent(i, 'playlist:tracks-updated', (p) => p.playlistId === playlist.id);
+    assert.equal(i.received.filter((r) => r.event === 'playlist:revoked').length, 0);
   });
 
   test('two concurrent reorders: both clients end on the final server order', async () => {
@@ -543,6 +604,7 @@ describe('two instances sharing Redis', { skip: redisUp ? false : 'Redis unreach
         token: owner.token,
       });
       assert.equal(revoke.status, 204);
+      await waitForEvent(onB, 'room:revoked', (p) => p.roomId === room.id);
       assert.equal((await b.io.in(`room:${room.id}`).fetchSockets()).length, 0);
 
       const before = eventsFor(onB, 'roomId', room.id).length;

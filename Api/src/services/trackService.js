@@ -55,8 +55,27 @@ function queueQuery(client, roomId) {
   });
 }
 
-export async function getTracksForRoom(roomId) {
-  return queueQuery(prisma, roomId);
+/**
+ * Adds `hasVoted` (did `userId` vote for this track?) to each track. Per user:
+ * never used for socket broadcasts, which are shared by every client of a room.
+ */
+async function withHasVoted(client, tracks, userId) {
+  if (tracks.length === 0) return tracks;
+  const votes = await client.vote.findMany({
+    where: { userId, trackId: { in: tracks.map((t) => t.id) } },
+    select: { trackId: true },
+  });
+  const voted = new Set(votes.map((v) => v.trackId));
+  return tracks.map((t) => ({ ...t, hasVoted: voted.has(t.id) }));
+}
+
+/**
+ * Room queue ordered by position. With `userId`, each track carries `hasVoted`
+ * for that user (REST responses); without it, the shared payload of `queue:updated`.
+ */
+export async function getTracksForRoom(roomId, userId) {
+  const queue = await queueQuery(prisma, roomId);
+  return userId ? withHasVoted(prisma, queue, userId) : queue;
 }
 
 /**
@@ -137,7 +156,7 @@ export async function voteForTrack(roomId, trackId, userId) {
       data: { voteCount: { increment: 1 } },
     });
 
-    const queue = await reorderQueue(tx, roomId);
+    const queue = await withHasVoted(tx, await reorderQueue(tx, roomId), userId);
     const track = queue.find((t) => t.id === trackId);
 
     return { track, queue };
@@ -159,7 +178,7 @@ export async function removeVote(roomId, trackId, userId) {
       data: { voteCount: { decrement: 1 } },
     });
 
-    const queue = await reorderQueue(tx, roomId);
+    const queue = await withHasVoted(tx, await reorderQueue(tx, roomId), userId);
 
     return { queue };
   });

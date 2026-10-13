@@ -10,6 +10,8 @@ import {
   emitToPlaylist,
   emitPlaylistTracks,
   evictFromPlaylist,
+  revokePlaylistAccess,
+  revokePlaylistSubscribers,
 } from '../lib/realtime.js';
 
 // Locked transactions queue behind each other; leave room for bursts of edits.
@@ -239,7 +241,7 @@ export async function updatePlaylist(req, res) {
         select: { userId: true },
       });
       const allowed = new Set([updated.ownerId, ...invites.map((inv) => inv.userId)]);
-      await evictFromPlaylist(id, (socket) => !allowed.has(socket.data?.userId));
+      await revokePlaylistSubscribers(id, (userId) => allowed.has(userId));
     }
 
     emitPlaylistUpdated(updated);
@@ -610,7 +612,7 @@ export async function removeInvite(req, res) {
     }
 
     if (!(await isUserAllowedInPlaylist(playlist, userId))) {
-      await evictFromPlaylist(id, (socket) => socket.data?.userId === userId);
+      await revokePlaylistAccess(id, [userId]);
     }
 
     return res.status(204).end();

@@ -26,6 +26,8 @@ export function MediaController({
         onPress={onTogglePlay}
         style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
         hitSlop={8}
+        accessibilityRole="button"
+        accessibilityLabel={isPlaying ? 'Pause' : 'Lecture'}
       >
         <Ionicons
           name={isPlaying ? 'pause' : 'play'}

@@ -29,6 +29,9 @@ router.use(authMiddleware);
  *         position: { type: integer, description: 'Position dans la file (1 = prochain titre)' }
  *         suggestedBy: { type: string }
  *         createdAt: { type: string, format: date-time }
+ *         hasVoted:
+ *           type: boolean
+ *           description: "L'appelant a voté pour ce titre (GET de la file et réponses de vote/retrait uniquement ; absent des événements socket)"
  *     Queue:
  *       type: array
  *       description: Titres triés par votes décroissants puis par ancienneté

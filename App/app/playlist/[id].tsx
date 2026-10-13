@@ -7,18 +7,22 @@ import {
   Pressable,
   StyleSheet,
   ActivityIndicator,
-  Modal,
-  TextInput,
   Alert,
   Share,
   Platform,
+  AppState,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useAudio } from '../../contexts/AudioContext';
-import { useApiConfig } from '../../contexts/ApiConfigContext';
+import { useAudio, type QueueItem } from '../../contexts/AudioContext';
 import { useAuthedFetch } from '../../hooks/use-authed-fetch';
+import { useSocket, useSocketChannel } from '../../contexts/SocketContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { MediaController } from '../../components/mediaController';
+import { ConnectionBanner } from '../../components/ConnectionBanner';
+import { TrackSearchModal } from '../../components/TrackSearchModal';
+import { InviteUserModal } from '../../components/InviteUserModal';
+import { codeMessage, errorMessage, notify } from '../../utils/feedback';
 import { DeezerTrack } from '../(tabs)/home';
 
 export type PlaylistTrackItem = {
@@ -43,6 +47,8 @@ export type PlaylistDetail = {
   inviteCode: string | null;
   coverUrl: string | null;
   version: number;
+  ownerId: string;
+  invites?: { id: string; playlistId: string; userId: string; canEdit: boolean }[];
   tracks: PlaylistTrackItem[];
   createdAt: string;
 };
@@ -56,36 +62,59 @@ export default function PlaylistEditorScreen() {
   const [canEdit, setCanEdit] = useState(true);
 
   // Global Audio Playback
-  const { currentTrack, isPlaying, playTrack, togglePlay } = useAudio();
-  const { apiFetch: publicFetch } = useApiConfig();
+  const { currentTrack, currentKey, isPlaying, playTrack, togglePlay, updateQueue } = useAudio();
   const apiFetch = useAuthedFetch();
+  const { status: socketStatus } = useSocket();
+  const { user } = useAuth();
+  const [inviteVisible, setInviteVisible] = useState(false);
 
   // Add Track Search Modal
   const [searchModalVisible, setSearchModalVisible] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<DeezerTrack[]>([]);
-  const [searching, setSearching] = useState(false);
-  const searchTimeoutRef = useRef<any>(null);
+
+  // Realtime: joined `playlist:<id>` on the current connection.
+  const [joinedLive, setJoinedLive] = useState(false);
+  const live = joinedLive && socketStatus === 'connected';
+  // Bumped by every fetch start and socket snapshot: a fetch only applies its result
+  // when nothing newer started or arrived in the meantime.
+  const fetchSeq = useRef(0);
+  const leaving = useRef(false);
 
   // Loading state for reordering
   const [reordering, setReordering] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  /** Deleted playlist or access lost (eviction): tell the user and go back to the list. */
+  const leaveWithNotice = useCallback(
+    (message: string) => {
+      if (leaving.current) return;
+      leaving.current = true;
+      setPlaylist(null);
+      notify('Playlist', message, () => {
+        // Reset once the notice is closed: the next access problem may notify again.
+        leaving.current = false;
+        router.replace('/(tabs)/playlists');
+      });
+    },
+    [router]
+  );
+
   const fetchPlaylist = useCallback(async () => {
     if (!id) return;
+    const seq = ++fetchSeq.current;
     try {
       const response = await apiFetch(`/api/playlists/${id}`);
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
 
       if (response.status === 403 || response.status === 404) {
         // Private playlist without access (or deleted): nothing to show.
-        setPlaylist(null);
-        throw new Error(data.error || 'Accès non autorisé à cette playlist');
+        leaveWithNotice(errorMessage(data, 'Accès non autorisé à cette playlist'));
+        return;
       }
       if (!response.ok) {
         throw new Error(data.error || 'Impossible de charger la playlist');
       }
 
+      if (seq !== fetchSeq.current) return; // a newer state is on its way
       setPlaylist(data.playlist);
       setCanEdit(data.canEdit ?? true);
     } catch (error: any) {
@@ -94,69 +123,96 @@ export default function PlaylistEditorScreen() {
     } finally {
       setLoading(false);
     }
-  }, [id, apiFetch]);
+  }, [id, apiFetch, leaveWithNotice]);
 
   useEffect(() => {
     fetchPlaylist();
   }, [fetchPlaylist]);
 
+  // Back from background: events may have been missed (or access revoked meanwhile).
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') fetchPlaylist();
+    });
+    return () => sub.remove();
+  }, [fetchPlaylist]);
+
+  useSocketChannel('playlist', id, {
+    onJoin: (ack) => {
+      if (ack.ok) {
+        setJoinedLive(true);
+        // (Re)joined: only the server knows what changed while we were away.
+        fetchPlaylist();
+        return;
+      }
+      setJoinedLive(false);
+      if (ack.code === 'PLAYLIST_FORBIDDEN' || ack.code === 'PLAYLIST_NOT_FOUND') {
+        leaveWithNotice(codeMessage(ack.code, "Vous n'avez plus accès à cette playlist."));
+      }
+    },
+    onEvent: (event, payload) => {
+      switch (event) {
+        case 'playlist:tracks-updated':
+          if (Array.isArray(payload.tracks)) {
+            // Full ordered list from the server: replace ours, then reload the
+            // playlist for its new version (used by reorder) without waiting.
+            fetchSeq.current += 1;
+            setPlaylist((prev) => (prev ? { ...prev, tracks: payload.tracks } : prev));
+            // Keep next / previous in sync when this playlist is the one being played.
+            updateQueue(`playlist:${id}`, toQueue(payload.tracks));
+            fetchPlaylist();
+          }
+          break;
+        case 'playlist:updated':
+          // Name, visibility, license...: refetch (edit rights and invite code depend on it).
+          fetchPlaylist();
+          break;
+        case 'playlist:deleted':
+          leaveWithNotice('Cette playlist a été supprimée.');
+          break;
+        case 'playlist:revoked':
+          leaveWithNotice("Vous n'avez plus accès à cette playlist.");
+          break;
+      }
+    },
+  });
+
+  /** Without the live channel a write is not echoed back: read the playlist again. */
+  const syncAfterWrite = () => {
+    if (!live) fetchPlaylist();
+  };
+
+  const toDeezerTrack = (track: PlaylistTrackItem): DeezerTrack => ({
+    id: Number(track.externalId) || 0,
+    title: track.title,
+    preview: track.preview || '',
+    artist: {
+      name: track.artist,
+      picture_medium: '',
+    },
+    album: {
+      title: track.album || '',
+      cover_medium: track.coverUrl || '',
+    },
+  });
+
+  const toQueue = (tracks: PlaylistTrackItem[]): QueueItem[] =>
+    tracks.map((t) => ({ key: t.id, track: toDeezerTrack(t) }));
+
   const playSong = (track: PlaylistTrackItem) => {
-    const deezerTrack: DeezerTrack = {
-      id: Number(track.externalId) || 0,
-      title: track.title,
-      preview: track.preview || '',
-      artist: {
-        name: track.artist,
-        picture_medium: '',
-      },
-      album: {
-        title: track.album || '',
-        cover_medium: track.coverUrl || '',
-      },
-    };
-
-    playTrack(deezerTrack);
+    // The playlist is the queue that next / previous (and remote commands) move through.
+    // Tracks are identified by their playlist track id (externalIds may not be numeric).
+    playTrack(toDeezerTrack(track), {
+      key: track.id,
+      queue: toQueue(playlist?.tracks ?? [track]),
+      queueId: `playlist:${id}`,
+    });
   };
 
-
-  // Search Deezer Tracks
-  const performSearch = async (term: string) => {
-    if (!term.trim()) {
-      setSearchResults([]);
-      setSearching(false);
-      return;
-    }
-
-    setSearching(true);
-    try {
-      const res = await publicFetch(
-        `/api/deezer/search?q=${encodeURIComponent(term.trim())}`
-      );
-      const json = await res.json();
-      setSearchResults(json.results || []);
-    } catch (err) {
-      console.log('Search error:', err);
-      setSearchResults([]);
-    } finally {
-      setSearching(false);
-    }
-  };
-
-  const handleSearchChange = (text: string) => {
-    setSearchQuery(text);
-    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-    if (!text.trim()) {
-      setSearchResults([]);
-      return;
-    }
-    searchTimeoutRef.current = setTimeout(() => {
-      performSearch(text);
-    }, 400);
-  };
 
   // Add track to playlist
   const handleAddTrack = async (track: DeezerTrack) => {
-    if (!id) return;
+    if (!id) return false;
     try {
       const res = await apiFetch(`/api/playlists/${id}/tracks`, {
         method: 'POST',
@@ -175,17 +231,11 @@ export default function PlaylistEditorScreen() {
         throw new Error(data.error || "Erreur lors de l'ajout");
       }
 
-      // Refresh playlist
-      fetchPlaylist();
-      setSearchModalVisible(false);
-      setSearchQuery('');
-      setSearchResults([]);
+      syncAfterWrite();
+      return true;
     } catch (err: any) {
-      if (Platform.OS === 'web') {
-        window.alert(err.message || "Impossible d'ajouter le titre");
-      } else {
-        Alert.alert('Information', err.message || "Impossible d'ajouter le titre");
-      }
+      notify('Information', err.message || "Impossible d'ajouter le titre");
+      return false;
     }
   };
 
@@ -204,7 +254,7 @@ export default function PlaylistEditorScreen() {
         throw new Error(data.error || 'Erreur de suppression');
       }
 
-      fetchPlaylist();
+      syncAfterWrite();
     } catch (err: any) {
       Alert.alert('Erreur', err.message || 'Impossible de supprimer');
     }
@@ -253,6 +303,7 @@ export default function PlaylistEditorScreen() {
         throw new Error(data.error || 'Erreur lors de la réorganisation');
       } else {
         setPlaylist((prev) => (prev ? { ...prev, version: data.version } : null));
+        syncAfterWrite();
       }
     } catch (err: any) {
       Alert.alert('Erreur', err.message || 'Erreur de synchronisation');
@@ -296,6 +347,9 @@ export default function PlaylistEditorScreen() {
   };
 
   const executeDelete = async () => {
+    // Our own `playlist:deleted` echo (it may arrive before the response) must not
+    // show the "deleted" notice.
+    leaving.current = true;
     try {
       const res = await apiFetch(`/api/playlists/${id}`, {
         method: 'DELETE',
@@ -306,6 +360,7 @@ export default function PlaylistEditorScreen() {
       }
       handleGoBack();
     } catch (err: any) {
+      leaving.current = false;
       if (Platform.OS === 'web') {
         window.alert(err.message || 'Impossible de supprimer la playlist');
       } else {
@@ -354,12 +409,16 @@ export default function PlaylistEditorScreen() {
     );
   }
 
+  const isOwner = !!user && playlist.ownerId === user.id;
+
   return (
     <View style={styles.container}>
       {/* Top Navigation */}
       <View style={styles.navBar}>
         <Pressable
           onPress={handleGoBack}
+            accessibilityRole="button"
+            accessibilityLabel="Retour"
           hitSlop={10}
           style={styles.navIconBtn}
         >
@@ -368,9 +427,25 @@ export default function PlaylistEditorScreen() {
 
 
         <View style={styles.navActions}>
+          {isOwner && (
+            <Pressable
+              onPress={() => setInviteVisible(true)}
+              hitSlop={8}
+              style={styles.inviteButton}
+              accessibilityRole="button"
+              accessibilityLabel="Inviter un utilisateur"
+            >
+              <Ionicons name="person-add-outline" size={16} color="#fff" />
+              <Text style={styles.inviteButtonText}>
+                Inviter{playlist.invites?.length ? ` (${playlist.invites.length})` : ''}
+              </Text>
+            </Pressable>
+          )}
           {playlist.visibility === 'PRIVATE' && playlist.inviteCode && (
             <Pressable
               onPress={handleShareInvite}
+            accessibilityRole="button"
+            accessibilityLabel="Partager le code d'invitation"
               hitSlop={8}
               style={[styles.codeButton, copied && { borderColor: '#10b981', backgroundColor: '#0d281e' }]}
             >
@@ -393,6 +468,8 @@ export default function PlaylistEditorScreen() {
 
           <Pressable
             onPress={handleDeletePlaylist}
+            accessibilityRole="button"
+            accessibilityLabel="Supprimer la playlist"
             hitSlop={10}
             style={styles.navIconBtn}
           >
@@ -401,6 +478,8 @@ export default function PlaylistEditorScreen() {
         </View>
       </View>
 
+
+      <ConnectionBanner />
 
       {/* Playlist Header Info */}
       <View style={styles.headerInfo}>
@@ -484,12 +563,12 @@ export default function PlaylistEditorScreen() {
         }
         renderItem={({ item, index }) => {
           const isThisPlaying =
-            currentTrack?.id === Number(item.externalId) && isPlaying;
+            currentKey === item.id && isPlaying;
           return (
             <View
               style={[
                 styles.trackItem,
-                currentTrack?.id === Number(item.externalId) &&
+                currentKey === item.id &&
                   styles.activeTrackItem,
               ]}
             >
@@ -519,6 +598,8 @@ export default function PlaylistEditorScreen() {
               <Pressable
                 onPress={() => playSong(item)}
                 hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel={isThisPlaying ? `Mettre en pause ${item.title}` : `Écouter ${item.title}`}
                 style={styles.actionIcon}
               >
                 <Ionicons
@@ -533,6 +614,8 @@ export default function PlaylistEditorScreen() {
                 <View style={styles.orderActions}>
                   <Pressable
                     onPress={() => handleMoveTrack(index, 'UP')}
+            accessibilityRole="button"
+            accessibilityLabel={`Monter ${item.title}`}
                     disabled={index === 0}
                     hitSlop={4}
                     style={{ opacity: index === 0 ? 0.2 : 1 }}
@@ -542,6 +625,8 @@ export default function PlaylistEditorScreen() {
 
                   <Pressable
                     onPress={() => handleMoveTrack(index, 'DOWN')}
+            accessibilityRole="button"
+            accessibilityLabel={`Descendre ${item.title}`}
                     disabled={index === playlist.tracks.length - 1}
                     hitSlop={4}
                     style={{ opacity: index === playlist.tracks.length - 1 ? 0.2 : 1 }}
@@ -551,6 +636,8 @@ export default function PlaylistEditorScreen() {
 
                   <Pressable
                     onPress={() => handleRemoveTrack(item.id)}
+            accessibilityRole="button"
+            accessibilityLabel={`Retirer ${item.title}`}
                     hitSlop={6}
                     style={{ marginLeft: 4 }}
                   >
@@ -573,71 +660,23 @@ export default function PlaylistEditorScreen() {
       )}
 
       {/* ADD TRACK SEARCH MODAL */}
-      <Modal
+      <TrackSearchModal
         visible={searchModalVisible}
-        animationType="slide"
-        onRequestClose={() => setSearchModalVisible(false)}
-      >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalNav}>
-            <Text style={styles.modalHeading}>Ajouter à la playlist</Text>
-            <Pressable
-              onPress={() => setSearchModalVisible(false)}
-              hitSlop={8}
-            >
-              <Ionicons name="close" size={24} color="#fff" />
-            </Pressable>
-          </View>
+        title="Ajouter à la playlist"
+        onClose={() => setSearchModalVisible(false)}
+        onPick={handleAddTrack}
+      />
 
-          {/* Search bar */}
-          <View style={styles.modalSearchBar}>
-            <Ionicons name="search" size={18} color="#888" style={{ marginRight: 8 }} />
-            <TextInput
-              placeholder="Rechercher sur Deezer..."
-              placeholderTextColor="#777"
-              value={searchQuery}
-              onChangeText={handleSearchChange}
-              style={styles.modalSearchInput}
-              autoFocus
-            />
-          </View>
-
-          {searching ? (
-            <View style={styles.centerContainer}>
-              <ActivityIndicator size="large" color="#652edc" />
-            </View>
-          ) : (
-            <FlatList
-              data={searchResults}
-              keyExtractor={(item) => item.id.toString()}
-              contentContainerStyle={{ padding: 16 }}
-              renderItem={({ item }) => (
-                <View style={styles.searchResultItem}>
-                  <Image
-                    source={{ uri: item.album.cover_medium }}
-                    style={styles.resultCover}
-                  />
-                  <View style={styles.resultInfo}>
-                    <Text style={styles.resultTitle} numberOfLines={1}>
-                      {item.title}
-                    </Text>
-                    <Text style={styles.resultArtist} numberOfLines={1}>
-                      {item.artist.name}
-                    </Text>
-                  </View>
-
-                  <Pressable
-                    style={styles.addBtn}
-                    onPress={() => handleAddTrack(item)}
-                  >
-                    <Ionicons name="add" size={20} color="#fff" />
-                  </Pressable>
-                </View>
-              )}
-            />
-          )}
-        </View>
-      </Modal>
+      {isOwner && (
+        <InviteUserModal
+          visible={inviteVisible}
+          invitePath={`/api/playlists/${playlist.id}/invites`}
+          invitedIds={playlist.invites?.map((i) => i.userId) ?? []}
+          revokePath={(userId) => `/api/playlists/${playlist.id}/invites/${userId}`}
+          onClose={() => setInviteVisible(false)}
+          onInvited={fetchPlaylist}
+        />
+      )}
     </View>
   );
 }
@@ -672,6 +711,20 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#78350f',
+  },
+  inviteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#652edc',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  inviteButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
   },
   codeButtonText: {
     color: '#f59e0b',
@@ -851,75 +904,5 @@ const styles = StyleSheet.create({
   backBtnText: {
     color: '#fff',
     fontWeight: '600',
-  },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: '#141414',
-    paddingTop: 20,
-  },
-  modalNav: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    marginBottom: 14,
-  },
-  modalHeading: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  modalSearchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#202020',
-    borderRadius: 10,
-    marginHorizontal: 16,
-    paddingHorizontal: 12,
-    height: 44,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: '#303030',
-  },
-  modalSearchInput: {
-    flex: 1,
-    color: '#fff',
-    fontSize: 14,
-  },
-  searchResultItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1c1c1c',
-    borderRadius: 10,
-    padding: 8,
-    marginBottom: 8,
-  },
-  resultCover: {
-    width: 44,
-    height: 44,
-    borderRadius: 6,
-  },
-  resultInfo: {
-    flex: 1,
-    marginLeft: 10,
-    marginRight: 8,
-  },
-  resultTitle: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  resultArtist: {
-    color: '#888',
-    fontSize: 11,
-    marginTop: 2,
-  },
-  addBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#652edc',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 });

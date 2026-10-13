@@ -39,7 +39,13 @@
           }
         }
       ],
-      "expo-font"
+      "expo-font",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Music Room utilise votre position pour vérifier que vous êtes sur le lieu d'un événement quand vous votez, et pour placer la zone d'un événement que vous créez (« Utiliser ma position »)."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

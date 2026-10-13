@@ -225,6 +225,27 @@ export default function ProfileScreen() {
         )}
       </TouchableOpacity>
 
+      {/* Music Control Delegation */}
+      <View style={styles.card}>
+        <Text style={styles.sectionHeader}>Amis et appareils</Text>
+        <Text style={styles.sectionDesc}>
+          Donnez à vos amis le contrôle de la musique de vos appareils, ou contrôlez les leurs.
+        </Text>
+        {(
+          [
+            { icon: 'people-outline', label: 'Amis', href: '/friends' },
+            { icon: 'phone-portrait-outline', label: 'Mes appareils', href: '/devices' },
+            { icon: 'game-controller-outline', label: 'Partagés avec moi', href: '/remote' },
+          ] as const
+        ).map((link) => (
+          <TouchableOpacity key={link.href} style={styles.navRow} onPress={() => router.push(link.href)}>
+            <Ionicons name={link.icon} size={20} color="#a77bf3" />
+            <Text style={styles.navRowText}>{link.label}</Text>
+            <Ionicons name="chevron-forward" size={18} color="#555" />
+          </TouchableOpacity>
+        ))}
+      </View>
+
       {/* Social Networks Link */}
       <View style={styles.card}>
         <Text style={styles.sectionHeader}>Comptes Réseaux Sociaux</Text>
@@ -455,6 +476,20 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#fff',
     marginBottom: 4,
+  },
+  navRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#262626',
+  },
+  navRowText: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
   sectionDesc: {
     fontSize: 12,

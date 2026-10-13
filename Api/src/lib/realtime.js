@@ -36,7 +36,10 @@ export const playlistChannel = (playlistId) => `playlist:${playlistId}`;
 export const deviceChannel = (deviceId) => `device:${deviceId}`;
 /** Player sockets of a device (owner only): receive `device:command`. */
 export const devicePlayerChannel = (deviceId) => `device-player:${deviceId}`;
-/** Every socket of a user, joined automatically: receives `device:revoked`. */
+/**
+ * Every socket of a user, joined automatically: receives `device:revoked`,
+ * `delegation:updated`, `room:revoked` and `playlist:revoked`.
+ */
 export const userChannel = (userId) => `user:${userId}`;
 
 /** Channels the socket subscribed to (its own id and its user channel excluded). */
@@ -630,6 +633,58 @@ export function evictFromRoom(roomId, userId) {
 /** Removes sockets of a playlist channel matching `filter` (all when omitted). */
 export function evictFromPlaylist(playlistId, filter) {
   return evict(playlistChannel(playlistId), filter);
+}
+
+/** Emits `event` to each user's personal channel. Never throws. */
+function emitToUsers(userIds, event, payload) {
+  if (!io) return;
+  for (const userId of new Set(userIds)) {
+    if (!userId) continue;
+    try {
+      io.to(userChannel(userId)).emit(event, payload);
+    } catch (err) {
+      console.error(`[Realtime] ${event} to ${userId} failed`, err);
+    }
+  }
+}
+
+/**
+ * `userId` lost access to a room: their sockets receive `room:revoked { roomId }`,
+ * then leave the room channel. Never throws.
+ */
+export async function revokeRoomAccess(roomId, userId) {
+  if (!io) return;
+  emitToUsers([userId], 'room:revoked', { roomId });
+  await evictFromRoom(roomId, userId);
+}
+
+/**
+ * `userIds` lost access to a playlist: their sockets receive
+ * `playlist:revoked { playlistId }`, then leave the playlist channel. Never throws.
+ */
+export async function revokePlaylistAccess(playlistId, userIds) {
+  if (!io) return;
+  const revoked = new Set(userIds);
+  if (revoked.size === 0) return;
+  emitToUsers(revoked, 'playlist:revoked', { playlistId });
+  await evictFromPlaylist(playlistId, (s) => revoked.has(s.data?.userId));
+}
+
+/**
+ * Users with sockets on a playlist channel that `allowed(userId)` rejects lose
+ * access (e.g. the playlist became private): see `revokePlaylistAccess`. Never throws.
+ */
+export async function revokePlaylistSubscribers(playlistId, allowed) {
+  if (!io) return;
+  let userIds;
+  try {
+    const sockets = await io.in(playlistChannel(playlistId)).fetchSockets();
+    userIds = sockets.map((s) => s.data?.userId).filter((id) => id && !allowed(id));
+  } catch (err) {
+    console.error(`[Realtime] listing playlist:${playlistId} sockets failed`, err);
+    return;
+  }
+  await revokePlaylistAccess(playlistId, userIds);
 }
 
 /**

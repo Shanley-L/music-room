@@ -63,6 +63,19 @@ export default function TabLayout() {
           }}
         />
         <Tabs.Screen
+          name="events"
+          options={{
+            title: 'Événements',
+            tabBarIcon: ({ color, focused }) => (
+              <Ionicons
+                name={focused ? 'radio' : 'radio-outline'}
+                size={26}
+                color={color}
+              />
+            ),
+          }}
+        />
+        <Tabs.Screen
           name="profile"
           options={{
             title: 'Profil',

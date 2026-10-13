@@ -13,6 +13,15 @@ interface ApiConfigContextType {
 const DEFAULT_BACKEND_URL = Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
 const STORAGE_KEY = '@musicroom_backend_url';
 
+/** Platform, device and app version sent with every request (headers) and socket handshake. */
+export function getClientInfo() {
+  return {
+    platform: Platform.OS as string,
+    device: Constants.deviceName || (Platform.OS === 'web' ? 'Web Browser' : 'Mobile Device'),
+    appVersion: Constants.expoConfig?.version || '1.0.0',
+  };
+}
+
 const ApiConfigContext = createContext<ApiConfigContextType>({
   backendUrl: DEFAULT_BACKEND_URL,
   setBackendUrl: async () => {},
@@ -49,12 +58,11 @@ export const ApiConfigProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const fullUrl = getApiUrl(path);
 
     const token = await AsyncStorage.getItem('@musicroom_access_token');
-    const deviceName = Constants.deviceName || (Platform.OS === 'web' ? 'Web Browser' : 'Mobile Device');
-    const appVersion = Constants.expoConfig?.version || '1.0.0';
+    const { platform, device: deviceName, appVersion } = getClientInfo();
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'X-Platform': Platform.OS,
+      'X-Platform': platform,
       'X-Device': deviceName,
       'X-App-Version': appVersion,
       ...(options.headers as Record<string, string>),
