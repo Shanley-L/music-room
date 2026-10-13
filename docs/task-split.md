@@ -70,13 +70,13 @@
     - [x] Par défaut : tout le monde peut éditer
     - [x] Licence avancée : seuls les invités peuvent éditer
   - [x] Gestion des **conflits** (déplacement simultané de titres)
-- [ ] WebSocket Gateway — propagation des modifications en temps réel
+- [x] WebSocket Gateway — propagation des modifications en temps réel
 
 ### Mobile
 - [x] Écran recherche de titres (via Spotify/Deezer)
 - [x] Écran liste de playlists (publiques + privées invité)
 - [x] Écran éditeur collaboratif (drag & drop, ajout/suppression de titres)
-- [ ] Mises à jour temps réel via WebSocket
+- [x] Mises à jour temps réel via WebSocket
 
 ### Tests de charge (obligatoires)
 - [ ] Script **k6** (ou Apache Benchmark) pour les 3 services simultanément

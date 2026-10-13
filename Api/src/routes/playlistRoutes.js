@@ -1,4 +1,5 @@
 import express from 'express';
+import { authMiddleware, optionalAuth } from '../middleware/auth.js';
 import {
   getPlaylists,
   getPlaylistById,
@@ -13,16 +14,16 @@ import {
 
 const router = express.Router();
 
-router.get('/', getPlaylists);
-router.post('/', createPlaylist);
-router.post('/join', joinByCode);
+router.get('/', optionalAuth, getPlaylists);
+router.post('/', authMiddleware, createPlaylist);
+router.post('/join', authMiddleware, joinByCode);
 
-router.get('/:id', getPlaylistById);
-router.put('/:id', updatePlaylist);
-router.delete('/:id', deletePlaylist);
+router.get('/:id', optionalAuth, getPlaylistById);
+router.put('/:id', authMiddleware, updatePlaylist);
+router.delete('/:id', authMiddleware, deletePlaylist);
 
-router.post('/:id/tracks', addTrack);
-router.delete('/:id/tracks/:trackId', removeTrack);
-router.put('/:id/tracks/reorder', reorderTracks);
+router.post('/:id/tracks', authMiddleware, addTrack);
+router.delete('/:id/tracks/:trackId', authMiddleware, removeTrack);
+router.put('/:id/tracks/reorder', authMiddleware, reorderTracks);
 
 export default router;

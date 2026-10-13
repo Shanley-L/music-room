@@ -33,8 +33,14 @@ const googleDiscovery = {
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { login, oauthLogin, googleLogin, forgotPassword, verifyEmail } = useAuth();
+  const { user, isLoading: authLoading, login, oauthLogin, googleLogin, forgotPassword, verifyEmail } = useAuth();
   const { backendUrl, setBackendUrl } = useApiConfig();
+
+  useEffect(() => {
+    if (!authLoading && user) {
+      router.replace('/home');
+    }
+  }, [user, authLoading, router]);
 
   // Google OAuth request setup
   const [authRequest, authResponse, promptGoogleAsync] = AuthSession.useAuthRequest(
@@ -219,7 +225,7 @@ export default function LoginScreen() {
 
         {/* Title & Logo */}
         <View style={styles.header}>
-          <Ionicons name="musical-notes" size={54} color="#1DB954" />
+          <Ionicons name="musical-notes" size={54} color="#652edc" />
           <Text style={styles.title}>Music Room</Text>
           <Text style={styles.subtitle}>Connectez-vous pour rejoindre l’expérience</Text>
         </View>
@@ -372,7 +378,7 @@ export default function LoginScreen() {
               />
 
               {resetCodeSent && (
-                <Text style={{ color: '#1DB954', marginTop: 10, textAlign: 'center' }}>
+                <Text style={{ color: '#652edc', marginTop: 10, textAlign: 'center' }}>
                   Code généré : {resetCodeSent}
                 </Text>
               )}
@@ -410,12 +416,12 @@ export default function LoginScreen() {
         >
           <View style={styles.modalOverlay}>
             <View style={styles.modalCard}>
-              <Ionicons name="mail-unread-outline" size={40} color="#1DB954" style={{ alignSelf: 'center', marginBottom: 12 }} />
+              <Ionicons name="mail-unread-outline" size={40} color="#652edc" style={{ alignSelf: 'center', marginBottom: 12 }} />
               <Text style={styles.modalTitle}>Validation requise</Text>
               <Text style={styles.modalDesc}>
                 Votre compte n'est pas encore activé. Veuillez saisir le code à 6 chiffres reçu à l'adresse :
               </Text>
-              <Text style={{ color: '#1DB954', fontWeight: 'bold', textAlign: 'center', marginBottom: 14 }}>
+              <Text style={{ color: '#652edc', fontWeight: 'bold', textAlign: 'center', marginBottom: 14 }}>
                 {unverifiedEmail}
               </Text>
 
@@ -541,11 +547,11 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   forgotText: {
-    color: '#1DB954',
+    color: '#652edc',
     fontSize: 13,
   },
   loginButton: {
-    backgroundColor: '#1DB954',
+    backgroundColor: '#652edc',
     borderRadius: 24,
     paddingVertical: 14,
     alignItems: 'center',
@@ -609,7 +615,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   registerLink: {
-    color: '#1DB954',
+    color: '#652edc',
     fontSize: 14,
     fontWeight: 'bold',
   },
@@ -665,7 +671,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#333',
   },
   saveBtn: {
-    backgroundColor: '#1DB954',
+    backgroundColor: '#652edc',
   },
   modalBtnText: {
     color: '#fff',

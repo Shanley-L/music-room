@@ -11,6 +11,7 @@ import {
   TextInput,
   RefreshControl,
   Alert,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -124,7 +125,9 @@ export default function PlaylistsScreen() {
 
   const handleJoinByCode = async () => {
     if (!joinCode.trim()) {
-      Alert.alert('Erreur', "Veuillez saisir un code d'invitation");
+      const msg = "Veuillez saisir un code d'invitation";
+      if (Platform.OS === 'web') window.alert(msg);
+      else Alert.alert('Erreur', msg);
       return;
     }
 
@@ -134,7 +137,6 @@ export default function PlaylistsScreen() {
         method: 'POST',
         body: JSON.stringify({
           inviteCode: joinCode.trim().toUpperCase(),
-          userId: 'anonymous_user',
         }),
       });
 
@@ -151,7 +153,12 @@ export default function PlaylistsScreen() {
         router.push(`/playlist/${data.playlist.id}`);
       }
     } catch (err: any) {
-      Alert.alert('Erreur', err.message || 'Code invalide ou introuvable');
+      const msg = err.message || 'Code invalide ou introuvable';
+      if (Platform.OS === 'web') {
+        window.alert(msg);
+      } else {
+        Alert.alert('Erreur', msg);
+      }
     } finally {
       setJoining(false);
     }

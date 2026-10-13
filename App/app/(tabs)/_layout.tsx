@@ -1,11 +1,43 @@
-import { Tabs } from 'expo-router';
+import { Tabs, useRouter, usePathname } from 'expo-router';
+import { useEffect } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, ActivityIndicator } from 'react-native';
+import { useAuth } from '../../contexts/AuthContext';
 import { useAudio } from '../../contexts/AudioContext';
 import { MediaController } from '../../components/mediaController';
 
 export default function TabLayout() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const { user, isLoading } = useAuth();
   const { currentTrack, isPlaying, togglePlay } = useAudio();
+
+  // Strict Auth Guard: redirect unauthenticated users to /login
+  useEffect(() => {
+    if (isLoading) return;
+    if (pathname === '/loader' || pathname === '/') return;
+
+    if (!user) {
+      router.replace('/login');
+    }
+  }, [user, isLoading, pathname, router]);
+
+  if (isLoading) {
+    return (
+      <View style={[styles.container, styles.center]}>
+        <ActivityIndicator size="large" color="#652edc" />
+      </View>
+    );
+  }
+
+  // Prevent rendering tabs content if unauthenticated
+  if (!user && pathname !== '/loader' && pathname !== '/') {
+    return (
+      <View style={[styles.container, styles.center]}>
+        <ActivityIndicator size="large" color="#652edc" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -107,6 +139,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#121212',
+  },
+  center: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
 

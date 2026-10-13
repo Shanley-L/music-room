@@ -1,6 +1,8 @@
 import 'dotenv/config';
+import http from 'http';
 import express from 'express';
 import cors from 'cors';
+import { initSocket } from './lib/socket.js';
 import { requestLogger } from './middleware/logger.js';
 import { standardApiLimiter } from './middleware/rateLimit.js';
 import { setupSwagger } from './lib/swagger.js';
@@ -44,8 +46,14 @@ app.use((err, req, res, next) => {
 });
 
 const port = process.env.PORT || 3000;
+const httpServer = http.createServer(app);
 
-app.listen(port, () => {
+// Initialize Socket.IO real-time gateway
+initSocket(httpServer);
+
+httpServer.listen(port, () => {
   console.log(`API listening on http://localhost:${port}`);
   console.log(`Documentation Swagger disponible sur http://localhost:${port}/api-docs`);
+  console.log(`WebSocket Gateway prêt sur ws://localhost:${port}`);
 });
+

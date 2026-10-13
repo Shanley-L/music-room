@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -18,7 +18,13 @@ import { useAuth } from '../contexts/AuthContext';
 
 export default function RegisterScreen() {
   const router = useRouter();
-  const { register, verifyEmail, login } = useAuth();
+  const { user, isLoading: authLoading, register, verifyEmail, login } = useAuth();
+
+  useEffect(() => {
+    if (!authLoading && user) {
+      router.replace('/home');
+    }
+  }, [user, authLoading, router]);
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -109,7 +115,7 @@ export default function RegisterScreen() {
           <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
             <Ionicons name="arrow-back" size={24} color="#fff" />
           </TouchableOpacity>
-          <Ionicons name="person-add-outline" size={48} color="#1DB954" />
+          <Ionicons name="person-add-outline" size={48} color="#652edc" />
           <Text style={styles.title}>Créer un compte</Text>
           <Text style={styles.subtitle}>Rejoignez Music Room en quelques secondes</Text>
         </View>
@@ -192,12 +198,12 @@ export default function RegisterScreen() {
         >
           <View style={styles.modalOverlay}>
             <View style={styles.modalCard}>
-              <Ionicons name="mail-unread-outline" size={40} color="#1DB954" style={{ alignSelf: 'center', marginBottom: 12 }} />
+              <Ionicons name="mail-unread-outline" size={40} color="#652edc" style={{ alignSelf: 'center', marginBottom: 12 }} />
               <Text style={styles.modalTitle}>Validation de l'email</Text>
               <Text style={styles.modalDesc}>
                 Un email contenant votre code de validation à 6 chiffres vient d'être envoyé à l'adresse :
               </Text>
-              <Text style={{ color: '#1DB954', fontWeight: 'bold', textAlign: 'center', marginBottom: 14 }}>
+              <Text style={{ color: '#652edc', fontWeight: 'bold', textAlign: 'center', marginBottom: 14 }}>
                 {email}
               </Text>
 
@@ -308,7 +314,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   registerButton: {
-    backgroundColor: '#1DB954',
+    backgroundColor: '#652edc',
     borderRadius: 24,
     paddingVertical: 14,
     alignItems: 'center',
@@ -333,7 +339,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   loginLink: {
-    color: '#1DB954',
+    color: '#652edc',
     fontSize: 14,
     fontWeight: 'bold',
   },
@@ -369,7 +375,7 @@ const styles = StyleSheet.create({
   },
   codeHintBox: {
     backgroundColor: '#181818',
-    borderColor: '#1DB954',
+    borderColor: '#652edc',
     borderWidth: 1,
     borderRadius: 8,
     padding: 10,
@@ -381,7 +387,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   codeHintVal: {
-    color: '#1DB954',
+    color: '#652edc',
     fontSize: 22,
     fontWeight: 'bold',
     letterSpacing: 3,
@@ -411,7 +417,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#333',
   },
   confirmBtn: {
-    backgroundColor: '#1DB954',
+    backgroundColor: '#652edc',
   },
   modalBtnText: {
     color: '#fff',

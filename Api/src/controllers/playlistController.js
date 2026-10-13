@@ -1,5 +1,6 @@
 import prisma from '../lib/prisma.js';
 import crypto from 'crypto';
+import { emitToPlaylist } from '../lib/socket.js';
 
 // Generate a random 6-character alphanumeric invite code
 function generateInviteCode() {
@@ -15,7 +16,8 @@ function generateInviteCode() {
  */
 export async function getPlaylists(req, res) {
   try {
-    const { visibility, userId, q } = req.query;
+    const { visibility, q } = req.query;
+    const currentUserId = req.user?.id || null;
 
     const where = {};
 
@@ -23,25 +25,30 @@ export async function getPlaylists(req, res) {
       where.name = { contains: q, mode: 'insensitive' };
     }
 
-    const effectiveUserId = userId || 'anonymous';
-
     if (visibility === 'PUBLIC') {
       where.visibility = 'PUBLIC';
     } else if (visibility === 'PRIVATE') {
+      // If user is not logged in, cannot see any private playlists
+      if (!currentUserId) {
+        return res.status(200).json({ playlists: [] });
+      }
       where.visibility = 'PRIVATE';
       where.OR = [
-        { ownerId: effectiveUserId },
-        { invites: { some: { userId: effectiveUserId } } },
+        { ownerId: currentUserId },
+        { invites: { some: { userId: currentUserId } } },
       ];
     } else {
       // Return public playlists + private playlists owned or invited
-      where.OR = [
-        { visibility: 'PUBLIC' },
-        { ownerId: effectiveUserId },
-        { invites: { some: { userId: effectiveUserId } } },
-      ];
+      if (currentUserId) {
+        where.OR = [
+          { visibility: 'PUBLIC' },
+          { ownerId: currentUserId },
+          { invites: { some: { userId: currentUserId } } },
+        ];
+      } else {
+        where.visibility = 'PUBLIC';
+      }
     }
-
 
     const playlists = await prisma.playlist.findMany({
       where,
@@ -59,11 +66,16 @@ export async function getPlaylists(req, res) {
     });
 
     return res.status(200).json({
-      playlists: playlists.map((p) => ({
-        ...p,
-        trackCount: p._count.tracks,
-        previewCovers: p.tracks.map((t) => t.coverUrl).filter(Boolean),
-      })),
+      playlists: playlists.map((p) => {
+        const isOwner = currentUserId && p.ownerId === currentUserId;
+        return {
+          ...p,
+          // CRITICAL SECURITY: hide inviteCode for non-owners in lists
+          inviteCode: isOwner ? p.inviteCode : null,
+          trackCount: p._count.tracks,
+          previewCovers: p.tracks.map((t) => t.coverUrl).filter(Boolean),
+        };
+      }),
     });
   } catch (error) {
     console.error('getPlaylists error:', error);
@@ -77,7 +89,7 @@ export async function getPlaylists(req, res) {
 export async function getPlaylistById(req, res) {
   try {
     const { id } = req.params;
-    const { userId } = req.query;
+    const currentUserId = req.user?.id || null;
 
     const playlist = await prisma.playlist.findUnique({
       where: { id },
@@ -93,26 +105,33 @@ export async function getPlaylistById(req, res) {
       return res.status(404).json({ error: 'Playlist introuvable' });
     }
 
-    // Visibility check: if PRIVATE, check if user is owner or invited
-    if (playlist.visibility === 'PRIVATE' && userId) {
-      const isOwner = playlist.ownerId === userId;
-      const isInvited = playlist.invites.some((inv) => inv.userId === userId);
-      if (!isOwner && !isInvited) {
-        return res.status(403).json({ error: 'Accès non autorisé à cette playlist privée' });
+    const isOwner = Boolean(currentUserId && playlist.ownerId === currentUserId);
+    const isInvited = Boolean(currentUserId && playlist.invites.some((inv) => inv.userId === currentUserId));
+
+    // Visibility check: if PRIVATE, strictly require owner or invited user
+    if (playlist.visibility === 'PRIVATE') {
+      if (!currentUserId || (!isOwner && !isInvited)) {
+        return res.status(403).json({ error: 'Accès interdit : cette playlist est privée' });
       }
     }
 
     // Check edit permission
     let canEdit = true;
-    if (playlist.license === 'INVITED_ONLY' && userId) {
-      const isOwner = playlist.ownerId === userId;
-      const isInvited = playlist.invites.some((inv) => inv.userId === userId && inv.canEdit);
-      canEdit = isOwner || isInvited;
+    if (playlist.license === 'INVITED_ONLY') {
+      const inviteWithEdit = currentUserId && playlist.invites.some((inv) => inv.userId === currentUserId && inv.canEdit);
+      canEdit = isOwner || Boolean(inviteWithEdit);
     }
 
+    // CRITICAL SECURITY: only the creator/owner of the playlist can see and share the inviteCode!
+    const sanitizedPlaylist = {
+      ...playlist,
+      inviteCode: isOwner ? playlist.inviteCode : null,
+    };
+
     return res.status(200).json({
-      playlist,
+      playlist: sanitizedPlaylist,
       canEdit,
+      isOwner,
     });
   } catch (error) {
     console.error('getPlaylistById error:', error);
@@ -125,7 +144,8 @@ export async function getPlaylistById(req, res) {
  */
 export async function createPlaylist(req, res) {
   try {
-    const { name, description, visibility, license, coverUrl, ownerId } = req.body;
+    const { name, description, visibility, license, coverUrl } = req.body;
+    const ownerId = req.user?.id || 'anonymous';
 
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Le nom de la playlist est obligatoire' });
@@ -140,7 +160,7 @@ export async function createPlaylist(req, res) {
         visibility: visibility === 'PRIVATE' ? 'PRIVATE' : 'PUBLIC',
         license: license === 'INVITED_ONLY' ? 'INVITED_ONLY' : 'EVERYONE',
         coverUrl: coverUrl || null,
-        ownerId: ownerId || 'anonymous',
+        ownerId,
         inviteCode,
       },
     });
@@ -159,10 +179,21 @@ export async function updatePlaylist(req, res) {
   try {
     const { id } = req.params;
     const { name, description, visibility, license, coverUrl, expectedVersion } = req.body;
+    const currentUserId = req.user?.id;
 
-    const existing = await prisma.playlist.findUnique({ where: { id } });
+    const existing = await prisma.playlist.findUnique({
+      where: { id },
+      include: { invites: true },
+    });
     if (!existing) {
       return res.status(404).json({ error: 'Playlist introuvable' });
+    }
+
+    const isOwner = currentUserId && existing.ownerId === currentUserId;
+    const isInvited = currentUserId && existing.invites.some((inv) => inv.userId === currentUserId && inv.canEdit);
+
+    if (!isOwner && (existing.license === 'INVITED_ONLY' && !isInvited)) {
+      return res.status(403).json({ error: 'Modification non autorisée' });
     }
 
     // Optimistic concurrency check if expectedVersion is provided
@@ -185,6 +216,12 @@ export async function updatePlaylist(req, res) {
       },
     });
 
+    emitToPlaylist(id, 'playlist:updated', {
+      playlistId: id,
+      playlist: updated,
+      version: updated.version,
+    });
+
     return res.status(200).json({ playlist: updated });
   } catch (error) {
     console.error('updatePlaylist error:', error);
@@ -198,8 +235,23 @@ export async function updatePlaylist(req, res) {
 export async function deletePlaylist(req, res) {
   try {
     const { id } = req.params;
+    const currentUserId = req.user?.id;
+
+    const existing = await prisma.playlist.findUnique({ where: { id } });
+    if (!existing) {
+      return res.status(404).json({ error: 'Playlist introuvable' });
+    }
+
+    // Only owner can delete playlist
+    if (!currentUserId || existing.ownerId !== currentUserId) {
+      return res.status(403).json({ error: 'Seul le créateur peut supprimer cette playlist' });
+    }
 
     await prisma.playlist.delete({ where: { id } });
+
+    emitToPlaylist(id, 'playlist:deleted', {
+      playlistId: id,
+    });
 
     return res.status(200).json({ success: true, message: 'Playlist supprimée' });
   } catch (error) {
@@ -215,7 +267,8 @@ export async function deletePlaylist(req, res) {
 export async function addTrack(req, res) {
   try {
     const { id } = req.params;
-    const { externalId, title, artist, album, coverUrl, preview, duration, addedBy } = req.body;
+    const { externalId, title, artist, album, coverUrl, preview, duration } = req.body;
+    const currentUserId = req.user?.id || 'anonymous';
 
     if (!externalId || !title || !artist) {
       return res.status(400).json({ error: 'externalId, title et artist sont obligatoires' });
@@ -223,11 +276,22 @@ export async function addTrack(req, res) {
 
     const playlist = await prisma.playlist.findUnique({
       where: { id },
-      include: { tracks: true },
+      include: { tracks: true, invites: true },
     });
 
     if (!playlist) {
       return res.status(404).json({ error: 'Playlist introuvable' });
+    }
+
+    const isOwner = currentUserId && playlist.ownerId === currentUserId;
+    const isInvited = currentUserId && playlist.invites.some((inv) => inv.userId === currentUserId && inv.canEdit);
+
+    if (playlist.visibility === 'PRIVATE' && !isOwner && !isInvited) {
+      return res.status(403).json({ error: 'Accès interdit à cette playlist privée' });
+    }
+
+    if (playlist.license === 'INVITED_ONLY' && !isOwner && !isInvited) {
+      return res.status(403).json({ error: 'Seuls les membres invités peuvent modifier cette playlist' });
     }
 
     // Check for duplicates in playlist
@@ -249,7 +313,6 @@ export async function addTrack(req, res) {
     // Use coverUrl if playlist doesn't have one yet
     const updateCover = !playlist.coverUrl && coverUrl;
 
-
     const [track, updatedPlaylist] = await prisma.$transaction([
       prisma.playlistTrack.create({
         data: {
@@ -262,7 +325,7 @@ export async function addTrack(req, res) {
           preview: preview || null,
           duration: duration ? Number(duration) : null,
           position: newPosition,
-          addedBy: addedBy || 'anonymous',
+          addedBy: req.user?.name || req.user?.email || currentUserId,
         },
       }),
       prisma.playlist.update({
@@ -273,6 +336,12 @@ export async function addTrack(req, res) {
         },
       }),
     ]);
+
+    emitToPlaylist(id, 'track:added', {
+      playlistId: id,
+      track,
+      playlistVersion: updatedPlaylist.version,
+    });
 
     return res.status(201).json({
       track,
@@ -291,6 +360,23 @@ export async function addTrack(req, res) {
 export async function removeTrack(req, res) {
   try {
     const { id, trackId } = req.params;
+    const currentUserId = req.user?.id;
+
+    const playlist = await prisma.playlist.findUnique({
+      where: { id },
+      include: { invites: true },
+    });
+
+    if (!playlist) {
+      return res.status(404).json({ error: 'Playlist introuvable' });
+    }
+
+    const isOwner = currentUserId && playlist.ownerId === currentUserId;
+    const isInvited = currentUserId && playlist.invites.some((inv) => inv.userId === currentUserId && inv.canEdit);
+
+    if (playlist.license === 'INVITED_ONLY' && !isOwner && !isInvited) {
+      return res.status(403).json({ error: 'Seuls les membres invités peuvent modifier cette playlist' });
+    }
 
     const track = await prisma.playlistTrack.findUnique({
       where: { id: trackId },
@@ -299,6 +385,8 @@ export async function removeTrack(req, res) {
     if (!track || track.playlistId !== id) {
       return res.status(404).json({ error: 'Titre introuvable dans cette playlist' });
     }
+
+    let newVersion = 1;
 
     await prisma.$transaction(async (tx) => {
       // Delete the track
@@ -320,10 +408,17 @@ export async function removeTrack(req, res) {
       }
 
       // Increment version
-      await tx.playlist.update({
+      const updatedPlaylist = await tx.playlist.update({
         where: { id },
         data: { version: { increment: 1 } },
       });
+      newVersion = updatedPlaylist.version;
+    });
+
+    emitToPlaylist(id, 'track:removed', {
+      playlistId: id,
+      trackId,
+      playlistVersion: newVersion,
     });
 
     return res.status(200).json({ success: true, message: 'Titre supprimé avec succès' });
@@ -342,6 +437,7 @@ export async function reorderTracks(req, res) {
   try {
     const { id } = req.params;
     const { trackIds, expectedVersion } = req.body;
+    const currentUserId = req.user?.id;
 
     if (!Array.isArray(trackIds)) {
       return res.status(400).json({ error: 'trackIds doit être un tableau d\'identifiants' });
@@ -349,11 +445,18 @@ export async function reorderTracks(req, res) {
 
     const playlist = await prisma.playlist.findUnique({
       where: { id },
-      include: { tracks: true },
+      include: { tracks: true, invites: true },
     });
 
     if (!playlist) {
       return res.status(404).json({ error: 'Playlist introuvable' });
+    }
+
+    const isOwner = currentUserId && playlist.ownerId === currentUserId;
+    const isInvited = currentUserId && playlist.invites.some((inv) => inv.userId === currentUserId && inv.canEdit);
+
+    if (playlist.license === 'INVITED_ONLY' && !isOwner && !isInvited) {
+      return res.status(403).json({ error: 'Seuls les membres invités peuvent modifier cette playlist' });
     }
 
     // Optimistic Concurrency Conflict Detection
@@ -365,6 +468,8 @@ export async function reorderTracks(req, res) {
       });
     }
 
+    let nextVersion = playlist.version + 1;
+
     // Atomic update of positions
     await prisma.$transaction(async (tx) => {
       for (let i = 0; i < trackIds.length; i++) {
@@ -374,10 +479,11 @@ export async function reorderTracks(req, res) {
         });
       }
 
-      await tx.playlist.update({
+      const updated = await tx.playlist.update({
         where: { id },
         data: { version: { increment: 1 } },
       });
+      nextVersion = updated.version;
     });
 
     const updatedTracks = await prisma.playlistTrack.findMany({
@@ -385,10 +491,17 @@ export async function reorderTracks(req, res) {
       orderBy: { position: 'asc' },
     });
 
+    emitToPlaylist(id, 'tracks:reordered', {
+      playlistId: id,
+      trackIds,
+      tracks: updatedTracks,
+      playlistVersion: nextVersion,
+    });
+
     return res.status(200).json({
       success: true,
       tracks: updatedTracks,
-      version: playlist.version + 1,
+      version: nextVersion,
     });
   } catch (error) {
     console.error('reorderTracks error:', error);
@@ -399,14 +512,19 @@ export async function reorderTracks(req, res) {
 /**
  * POST /api/playlists/join
  * Join private playlist by invite code
- * Body: { inviteCode: string, userId: string }
+ * Body: { inviteCode: string }
  */
 export async function joinByCode(req, res) {
   try {
-    const { inviteCode, userId } = req.body;
+    const { inviteCode } = req.body;
+    const userId = req.user?.id;
 
-    if (!inviteCode || !userId) {
-      return res.status(400).json({ error: 'inviteCode et userId sont requis' });
+    if (!inviteCode || !inviteCode.trim()) {
+      return res.status(400).json({ error: 'inviteCode est requis' });
+    }
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Vous devez être connecté pour rejoindre une playlist privée' });
     }
 
     const playlist = await prisma.playlist.findUnique({
@@ -417,7 +535,7 @@ export async function joinByCode(req, res) {
       return res.status(404).json({ error: 'Code d\'invitation invalide' });
     }
 
-    // Add invite
+    // Add invite for the authenticated user
     await prisma.playlistInvite.upsert({
       where: {
         playlistId_userId: {
@@ -433,7 +551,12 @@ export async function joinByCode(req, res) {
       update: {},
     });
 
-    return res.status(200).json({ playlist });
+    return res.status(200).json({
+      playlist: {
+        ...playlist,
+        inviteCode: playlist.ownerId === userId ? playlist.inviteCode : null,
+      },
+    });
   } catch (error) {
     console.error('joinByCode error:', error);
     return res.status(500).json({ error: error.message || 'Erreur lors de la liaison' });

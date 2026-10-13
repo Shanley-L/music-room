@@ -17,6 +17,8 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAudio } from '../../contexts/AudioContext';
 import { useApiConfig } from '../../contexts/ApiConfigContext';
+import { useSocket } from '../../contexts/SocketContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { MediaController } from '../../components/mediaController';
 import { DeezerTrack } from '../(tabs)/home';
 
@@ -53,10 +55,19 @@ export default function PlaylistEditorScreen() {
   const [playlist, setPlaylist] = useState<PlaylistDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [canEdit, setCanEdit] = useState(true);
+  const [isOwner, setIsOwner] = useState(false);
 
   // Global Audio Playback
+  const { user, isLoading: authLoading } = useAuth();
   const { currentTrack, isPlaying, playTrack, togglePlay } = useAudio();
   const { apiFetch } = useApiConfig();
+  const { socket, isConnected, joinPlaylist, leavePlaylist } = useSocket();
+
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.replace('/login');
+    }
+  }, [user, authLoading, router]);
 
   // Add Track Search Modal
   const [searchModalVisible, setSearchModalVisible] = useState(false);
@@ -81,6 +92,7 @@ export default function PlaylistEditorScreen() {
 
       setPlaylist(data.playlist);
       setCanEdit(data.canEdit ?? true);
+      setIsOwner(data.isOwner ?? false);
     } catch (error: any) {
       console.log('Error loading playlist:', error);
       Alert.alert('Erreur', error.message || 'Erreur de chargement');
@@ -92,6 +104,81 @@ export default function PlaylistEditorScreen() {
   useEffect(() => {
     fetchPlaylist();
   }, [fetchPlaylist]);
+
+  // Join playlist socket room & listen for real-time events
+  useEffect(() => {
+    if (!id) return;
+    joinPlaylist(id);
+
+    return () => {
+      leavePlaylist(id);
+    };
+  }, [id, isConnected]);
+
+  useEffect(() => {
+    if (!socket || !id) return;
+
+    const onTrackAdded = ({ track, playlistVersion }: { track: PlaylistTrackItem; playlistVersion: number }) => {
+      setPlaylist((prev) => {
+        if (!prev) return prev;
+        if (prev.tracks.some((t) => t.id === track.id)) return prev;
+        const newTracks = [...prev.tracks, track].sort((a, b) => a.position - b.position);
+        return {
+          ...prev,
+          version: playlistVersion,
+          coverUrl: prev.coverUrl || track.coverUrl,
+          tracks: newTracks,
+        };
+      });
+    };
+
+    const onTrackRemoved = ({ trackId, playlistVersion }: { trackId: string; playlistVersion: number }) => {
+      setPlaylist((prev) => {
+        if (!prev) return prev;
+        const filtered = prev.tracks.filter((t) => t.id !== trackId);
+        const reindexed = filtered.map((t, index) => ({ ...t, position: index }));
+        return {
+          ...prev,
+          version: playlistVersion,
+          tracks: reindexed,
+        };
+      });
+    };
+
+    const onTracksReordered = ({ tracks, playlistVersion }: { tracks: PlaylistTrackItem[]; playlistVersion: number }) => {
+      setPlaylist((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          version: playlistVersion,
+          tracks,
+        };
+      });
+    };
+
+    const onPlaylistUpdated = ({ playlist: updated }: { playlist: Partial<PlaylistDetail> }) => {
+      setPlaylist((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          ...updated,
+          tracks: prev.tracks,
+        };
+      });
+    };
+
+    socket.on('track:added', onTrackAdded);
+    socket.on('track:removed', onTrackRemoved);
+    socket.on('tracks:reordered', onTracksReordered);
+    socket.on('playlist:updated', onPlaylistUpdated);
+
+    return () => {
+      socket.off('track:added', onTrackAdded);
+      socket.off('track:removed', onTrackRemoved);
+      socket.off('tracks:reordered', onTracksReordered);
+      socket.off('playlist:updated', onPlaylistUpdated);
+    };
+  }, [socket, id]);
 
   const playSong = (track: PlaylistTrackItem) => {
     const deezerTrack: DeezerTrack = {
@@ -360,7 +447,7 @@ export default function PlaylistEditorScreen() {
 
 
         <View style={styles.navActions}>
-          {playlist.visibility === 'PRIVATE' && playlist.inviteCode && (
+          {playlist.visibility === 'PRIVATE' && isOwner && playlist.inviteCode && (
             <Pressable
               onPress={handleShareInvite}
               hitSlop={8}
@@ -383,13 +470,15 @@ export default function PlaylistEditorScreen() {
             </Pressable>
           )}
 
-          <Pressable
-            onPress={handleDeletePlaylist}
-            hitSlop={10}
-            style={styles.navIconBtn}
-          >
-            <Ionicons name="trash-outline" size={20} color="#e11d48" />
-          </Pressable>
+          {isOwner && (
+            <Pressable
+              onPress={handleDeletePlaylist}
+              hitSlop={10}
+              style={styles.navIconBtn}
+            >
+              <Ionicons name="trash-outline" size={20} color="#e11d48" />
+            </Pressable>
+          )}
         </View>
       </View>
 
@@ -442,6 +531,14 @@ export default function PlaylistEditorScreen() {
                 {playlist.tracks.length > 1 ? 'titres' : 'titre'}
               </Text>
             </View>
+
+            {isConnected && (
+              <View style={[styles.badge, { backgroundColor: '#10b98118', borderColor: '#10b98144', borderWidth: 1 }]}>
+                <Text style={[styles.badgeText, { color: '#10b981', fontSize: 11, fontWeight: '700' }]}>
+                  ● En direct
+                </Text>
+              </View>
+            )}
           </View>
         </View>
       </View>

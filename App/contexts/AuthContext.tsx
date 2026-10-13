@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useApiConfig } from './ApiConfigContext';
+import { useApiConfig, addTokenRefreshListener } from './ApiConfigContext';
 
 export interface User {
   id: string;
@@ -46,6 +46,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     loadStoredAuth();
+
+    const unsubscribe = addTokenRefreshListener((newToken) => {
+      if (newToken) {
+        setToken(newToken);
+      } else {
+        setToken(null);
+        setUser(null);
+      }
+    });
+
+    return unsubscribe;
   }, []);
 
   const loadStoredAuth = async () => {
@@ -56,7 +67,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (storedToken && storedUser) {
         setToken(storedToken);
         setUser(JSON.parse(storedUser));
-        // Silently fetch fresh profile
+        // Silently fetch fresh profile (will transparently refresh if expired)
         fetchMe(storedToken);
       }
     } catch (e) {
@@ -75,6 +86,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const freshUser = await res.json();
         setUser(freshUser);
         await AsyncStorage.setItem(USER_KEY, JSON.stringify(freshUser));
+      } else if (res.status === 401) {
+        // If refresh failed and still 401, clear stale state
+        setUser(null);
+        setToken(null);
+        await AsyncStorage.removeItem(TOKEN_KEY);
+        await AsyncStorage.removeItem(REFRESH_TOKEN_KEY);
+        await AsyncStorage.removeItem(USER_KEY);
       }
     } catch (e) {
       // offline or server restarting
