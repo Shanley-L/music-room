@@ -59,3 +59,38 @@ export async function isTokenBlacklisted(token) {
 }
 
 export default redisClient;
+
+// Failed-attempt counters (one-time codes). Redis when available, memory otherwise.
+const memoryAttempts = new Map();
+
+/** Increments the counter `key` (expires `ttlSeconds` after its first hit) and returns it. */
+export async function incrementAttempts(key, ttlSeconds = 3600) {
+  if (isRedisAvailable && redisClient) {
+    try {
+      const count = await redisClient.incr(`attempts:${key}`);
+      if (count === 1) await redisClient.expire(`attempts:${key}`, ttlSeconds);
+      return count;
+    } catch (e) {
+      // Fallback to memory
+    }
+  }
+  const now = Date.now();
+  const entry = memoryAttempts.get(key);
+  if (!entry || entry.expiresAt <= now) {
+    memoryAttempts.set(key, { count: 1, expiresAt: now + ttlSeconds * 1000 });
+    return 1;
+  }
+  entry.count += 1;
+  return entry.count;
+}
+
+export async function clearAttempts(key) {
+  memoryAttempts.delete(key);
+  if (isRedisAvailable && redisClient) {
+    try {
+      await redisClient.del(`attempts:${key}`);
+    } catch (e) {
+      // ignore
+    }
+  }
+}

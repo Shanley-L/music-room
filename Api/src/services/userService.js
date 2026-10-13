@@ -1,15 +1,22 @@
 import prisma from '../lib/prisma.js';
+import { areFriends } from './friendService.js';
 
-function sanitizeUser(user, isOwner = false) {
+/**
+ * Profile visibility levels (subject V.1 / V.6):
+ * - public: everyone (id, name, avatar, bio, music preferences);
+ * - friends: public + friendsInfo, for accepted friends (Friendship ACCEPTED);
+ * - owner: every field except secrets (password, verification/reset codes);
+ *   email, privateInfo and linked accounts are never shown to anyone else.
+ */
+function sanitizeUser(user, level = 'public') {
   if (!user) return null;
 
-  if (isOwner) {
+  if (level === 'owner') {
     const { password, verificationCode, resetPasswordCode, resetPasswordExpires, ...full } = user;
     return full;
   }
 
-  // Public view: only public info & music preferences
-  return {
+  const view = {
     id: user.id,
     name: user.name,
     avatarUrl: user.avatarUrl,
@@ -17,6 +24,10 @@ function sanitizeUser(user, isOwner = false) {
     musicPreferences: user.musicPreferences,
     createdAt: user.createdAt,
   };
+
+  if (level === 'friend') view.friendsInfo = user.friendsInfo;
+
+  return view;
 }
 
 export async function getUserProfile(userId, requesterId) {
@@ -26,8 +37,9 @@ export async function getUserProfile(userId, requesterId) {
 
   if (!user) return null;
 
-  const isOwner = userId === requesterId;
-  return sanitizeUser(user, isOwner);
+  if (requesterId && userId === requesterId) return sanitizeUser(user, 'owner');
+  if (requesterId && (await areFriends(userId, requesterId))) return sanitizeUser(user, 'friend');
+  return sanitizeUser(user, 'public');
 }
 
 export async function updateUserProfile(userId, data) {
@@ -45,7 +57,7 @@ export async function updateUserProfile(userId, data) {
     },
   });
 
-  return sanitizeUser(updated, true);
+  return sanitizeUser(updated, 'owner');
 }
 
 /** Name search for adding friends: `{ id, name }` only, caller excluded, 20 max. */

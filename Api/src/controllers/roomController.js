@@ -8,6 +8,7 @@ import {
   inviteUser,
   removeInvite as removeInviteService,
   deleteRoom,
+  regenerateInviteCode,
   isUserAllowedInRoom,
   sanitizeRoomForUser,
   hasZone,
@@ -59,7 +60,7 @@ const inviteSchema = z.object({
 });
 
 const joinSchema = z.object({
-  inviteCode: z.string().trim().min(1, 'inviteCode est requis'),
+  inviteCode: z.string().trim().min(1, 'inviteCode est requis').max(64, 'inviteCode invalide'),
 });
 
 function validationError(res, zodError) {
@@ -123,6 +124,14 @@ export async function join(req, res) {
   if (result.error) return sendServiceError(res, result);
 
   return res.json(result.room);
+}
+
+export async function regenerateCode(req, res) {
+  const result = await regenerateInviteCode(req.params.id, req.user.id);
+
+  if (result.error) return sendServiceError(res, result);
+
+  return res.json({ inviteCode: result.inviteCode });
 }
 
 export async function invite(req, res) {

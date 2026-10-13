@@ -18,6 +18,24 @@ import delegationRoutes from './routes/delegationRoutes.js';
 
 const app = express();
 
+/**
+ * TRUST_PROXY (default off): set only behind a reverse proxy, so req.ip (logs,
+ * per-IP rate limits) is the client address from X-Forwarded-For instead of the
+ * proxy's. Accepts a hop count ("1"), "true" (trust every hop: only if the API is
+ * unreachable except through the proxy) or Express values ("loopback", subnets).
+ * Left off, a client cannot spoof its IP with X-Forwarded-For.
+ */
+export function parseTrustProxy(value) {
+  if (value == null) return false;
+  const v = String(value).trim();
+  if (v === '' || v === 'false' || v === '0') return false;
+  if (v === 'true') return true;
+  if (/^\d+$/.test(v)) return Number(v);
+  return v;
+}
+
+app.set('trust proxy', parseTrustProxy(process.env.TRUST_PROXY));
+
 app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
 app.use(express.json());
 

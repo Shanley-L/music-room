@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -14,63 +14,15 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import * as WebBrowser from 'expo-web-browser';
-import * as AuthSession from 'expo-auth-session';
 import { useAuth } from '../contexts/AuthContext';
 import { useApiConfig } from '../contexts/ApiConfigContext';
-
-WebBrowser.maybeCompleteAuthSession();
-
-const GOOGLE_CLIENT_ID =
-  process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ||
-  '414307477970-ah2niqrcoofpar1fhr6ide4gcbb8crri.apps.googleusercontent.com';
-
-const googleDiscovery = {
-  authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
-  tokenEndpoint: 'https://oauth2.googleapis.com/token',
-  revocationEndpoint: 'https://oauth2.googleapis.com/revoke',
-};
+import { GoogleAuth, useDevOAuthAvailable } from '../components/GoogleAuth';
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { login, oauthLogin, googleLogin, forgotPassword, verifyEmail } = useAuth();
+  const { login, googleLogin, devOAuthLogin, forgotPassword, verifyEmail } = useAuth();
   const { backendUrl, setBackendUrl } = useApiConfig();
-
-  // Google OAuth request setup
-  const [authRequest, authResponse, promptGoogleAsync] = AuthSession.useAuthRequest(
-    {
-      clientId: GOOGLE_CLIENT_ID,
-      scopes: ['openid', 'profile', 'email'],
-      responseType: AuthSession.ResponseType.Token,
-      usePKCE: false,
-      redirectUri: AuthSession.makeRedirectUri({
-        scheme: 'musicroom',
-      }),
-    },
-    googleDiscovery
-  );
-
-  useEffect(() => {
-    if (authResponse?.type === 'success') {
-      const { access_token, id_token } = authResponse.params;
-      handleGoogleTokenSuccess(access_token, id_token);
-    } else if (authResponse?.type === 'error') {
-      setErrorMessage(authResponse.error?.message || 'Erreur lors de la connexion Google');
-    }
-  }, [authResponse]);
-
-  const handleGoogleTokenSuccess = async (accessToken?: string, idToken?: string) => {
-    setIsLoading(true);
-    setErrorMessage('');
-    const res = await googleLogin(accessToken, idToken);
-    setIsLoading(false);
-
-    if (res.success) {
-      router.replace('/home');
-    } else {
-      setErrorMessage(res.error || 'Erreur de connexion Google sur le serveur');
-    }
-  };
+  const devOAuthAvailable = useDevOAuthAvailable();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -143,26 +95,29 @@ export default function LoginScreen() {
     }
   };
 
-  const handleOAuth = async (provider: 'google') => {
-    if (provider === 'google' && promptGoogleAsync) {
-      try {
-        await promptGoogleAsync();
-      } catch (err: any) {
-        setErrorMessage(err.message || 'Impossible d’ouvrir Google Sign-In.');
-      }
-      return;
-    }
-
-    // Fallback simulation/direct
+  const handleGoogleIdToken = async (idToken: string) => {
     setIsLoading(true);
     setErrorMessage('');
-    const res = await oauthLogin(provider);
+    const res = await googleLogin(idToken);
     setIsLoading(false);
 
     if (res.success) {
       router.replace('/home');
     } else {
-      setErrorMessage(res.error || 'Erreur de connexion via Google.');
+      setErrorMessage(res.error || 'Erreur de connexion Google sur le serveur.');
+    }
+  };
+
+  const handleDevOAuth = async () => {
+    setIsLoading(true);
+    setErrorMessage('');
+    const res = await devOAuthLogin();
+    setIsLoading(false);
+
+    if (res.success) {
+      router.replace('/home');
+    } else {
+      setErrorMessage(res.error || 'Connexion Google simulée indisponible.');
     }
   };
 
@@ -285,14 +240,29 @@ export default function LoginScreen() {
         </View>
 
         <View style={styles.oauthContainer}>
-          <TouchableOpacity
-            style={[styles.oauthButton, styles.googleButton]}
-            onPress={() => handleOAuth('google')}
-            disabled={isLoading}
-          >
-            <Ionicons name="logo-google" size={20} color="#EA4335" />
-            <Text style={styles.oauthText}>Continuer avec Google</Text>
-          </TouchableOpacity>
+          <GoogleAuth onIdToken={handleGoogleIdToken} onError={setErrorMessage}>
+            {({ prompt, ready }) => (
+              <TouchableOpacity
+                style={[styles.oauthButton, styles.googleButton, (!ready || isLoading) && styles.disabledButton]}
+                onPress={prompt}
+                disabled={!ready || isLoading}
+              >
+                <Ionicons name="logo-google" size={20} color="#EA4335" />
+                <Text style={styles.oauthText}>Continuer avec Google</Text>
+              </TouchableOpacity>
+            )}
+          </GoogleAuth>
+
+          {devOAuthAvailable && (
+            <TouchableOpacity
+              style={[styles.oauthButton, isLoading && styles.disabledButton]}
+              onPress={handleDevOAuth}
+              disabled={isLoading}
+            >
+              <Ionicons name="construct-outline" size={20} color="#aaa" />
+              <Text style={styles.oauthText}>Google simulé (dev)</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Switch to Register */}

@@ -1,10 +1,21 @@
 import prisma from '../lib/prisma.js';
 
+/**
+ * Client-supplied values (headers, socket auth payload) are logged as one line:
+ * control characters (CR, LF, ESC, ...) become spaces (no log forging) and the
+ * value is truncated to `max` characters.
+ */
+export function sanitizeLogValue(value, max = 100) {
+  return String(value ?? '')
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ')
+    .slice(0, max);
+}
+
 export function requestLogger(req, res, next) {
   const start = Date.now();
-  const platform = req.headers['x-platform'] || req.headers['user-agent'] || 'Unknown Platform';
-  const device = req.headers['x-device'] || 'Unknown Device';
-  const appVersion = req.headers['x-app-version'] || '1.0.0';
+  const platform = sanitizeLogValue(req.headers['x-platform'] || req.headers['user-agent'] || 'Unknown Platform');
+  const device = sanitizeLogValue(req.headers['x-device'] || 'Unknown Device');
+  const appVersion = sanitizeLogValue(req.headers['x-app-version'] || '1.0.0', 50);
   const ip = req.ip || req.socket?.remoteAddress;
 
   // Intercept completion

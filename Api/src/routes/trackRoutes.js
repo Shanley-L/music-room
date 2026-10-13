@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
+import { voteLimiter } from '../middleware/rateLimit.js';
 import { listTracks, suggest, vote, unvote, remove } from '../controllers/trackController.js';
 
 const router = Router({ mergeParams: true });
@@ -141,6 +142,8 @@ router.delete('/:trackId', remove);
  *               latitude: { type: number }
  *               longitude: { type: number }
  *     responses:
+ *       429:
+ *         description: RATE_LIMITED
  *       200:
  *         description: Vote enregistré
  *         content:
@@ -173,6 +176,8 @@ router.delete('/:trackId', remove);
  *       - { in: path, name: roomId, required: true, schema: { type: string } }
  *       - { in: path, name: trackId, required: true, schema: { type: string } }
  *     responses:
+ *       429:
+ *         description: RATE_LIMITED
  *       200:
  *         description: Vote retiré
  *         content:
@@ -186,7 +191,7 @@ router.delete('/:trackId', remove);
  *       404:
  *         description: ROOM_NOT_FOUND, TRACK_NOT_FOUND ou VOTE_NOT_FOUND
  */
-router.post('/:trackId/vote', vote);
-router.delete('/:trackId/vote', unvote);
+router.post('/:trackId/vote', voteLimiter, vote);
+router.delete('/:trackId/vote', voteLimiter, unvote);
 
 export default router;

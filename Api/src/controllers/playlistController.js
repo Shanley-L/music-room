@@ -1,5 +1,5 @@
 import prisma from '../lib/prisma.js';
-import crypto from 'crypto';
+import { normalizeInviteCode, withFreshInviteCode } from '../lib/inviteCode.js';
 import {
   isUserAllowedInPlaylist,
   canEditPlaylist,
@@ -62,11 +62,6 @@ function sendIfBusy(res, error) {
 /** Serializes track writes on one playlist (positions stay consistent under concurrency). */
 function lockPlaylist(tx, playlistId) {
   return tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'playlist:' + playlistId}))`;
-}
-
-// Generate a random 6-character alphanumeric invite code
-function generateInviteCode() {
-  return crypto.randomBytes(3).toString('hex').toUpperCase();
 }
 
 /**
@@ -179,19 +174,19 @@ export async function createPlaylist(req, res) {
       return res.status(400).json({ error: 'Le nom de la playlist est obligatoire', code: 'VALIDATION_ERROR' });
     }
 
-    const inviteCode = generateInviteCode();
-
-    const playlist = await prisma.playlist.create({
-      data: {
-        name: name.trim(),
-        description: description?.trim() || null,
-        visibility: visibility === 'PRIVATE' ? 'PRIVATE' : 'PUBLIC',
-        license: license === 'INVITED_ONLY' ? 'INVITED_ONLY' : 'EVERYONE',
-        coverUrl: coverUrl || null,
-        ownerId: req.user.id,
-        inviteCode,
-      },
-    });
+    const playlist = await withFreshInviteCode((inviteCode) =>
+      prisma.playlist.create({
+        data: {
+          name: name.trim(),
+          description: description?.trim() || null,
+          visibility: visibility === 'PRIVATE' ? 'PRIVATE' : 'PUBLIC',
+          license: license === 'INVITED_ONLY' ? 'INVITED_ONLY' : 'EVERYONE',
+          coverUrl: coverUrl || null,
+          ownerId: req.user.id,
+          inviteCode,
+        },
+      })
+    );
 
     return res.status(201).json({ playlist });
   } catch (error) {
@@ -521,13 +516,15 @@ export async function joinByCode(req, res) {
     const { inviteCode } = req.body ?? {};
     const userId = req.user.id;
 
-    if (typeof inviteCode !== 'string' || !inviteCode.trim()) {
+    const code = normalizeInviteCode(inviteCode);
+    if (!code) {
       return res.status(400).json({ error: 'inviteCode est requis', code: 'VALIDATION_ERROR' });
     }
+    if (code.length > 64) {
+      return res.status(400).json({ error: 'inviteCode invalide', code: 'VALIDATION_ERROR' });
+    }
 
-    const playlist = await prisma.playlist.findUnique({
-      where: { inviteCode: inviteCode.trim().toUpperCase() },
-    });
+    const playlist = await prisma.playlist.findUnique({ where: { inviteCode: code } });
 
     if (!playlist) {
       return res.status(404).json({ error: "Code d'invitation invalide", code: 'INVALID_INVITE_CODE' });
@@ -546,6 +543,32 @@ export async function joinByCode(req, res) {
   } catch (error) {
     console.error('joinByCode error:', error);
     return res.status(500).json({ error: 'Erreur lors de la liaison', code: 'INTERNAL_ERROR' });
+  }
+}
+
+/**
+ * POST /api/playlists/:id/invite-code (owner only)
+ * Replaces the invite code: the previous one is rejected from now on, existing
+ * invitations are kept.
+ */
+export async function regenerateInviteCode(req, res) {
+  try {
+    const { id } = req.params;
+    const playlist = await prisma.playlist.findUnique({ where: { id } });
+    const denied = await checkPlaylistAccess(playlist, req.user.id, 'owner');
+    if (denied) return sendError(res, denied);
+
+    const updated = await withFreshInviteCode((inviteCode) =>
+      prisma.playlist.update({ where: { id }, data: { inviteCode }, select: { inviteCode: true } })
+    );
+
+    return res.status(200).json({ inviteCode: updated.inviteCode });
+  } catch (error) {
+    if (error?.code === 'P2025') {
+      return res.status(404).json({ error: 'Playlist introuvable', code: 'PLAYLIST_NOT_FOUND' });
+    }
+    console.error('regenerateInviteCode error:', error);
+    return res.status(500).json({ error: 'Erreur lors de la régénération du code', code: 'INTERNAL_ERROR' });
   }
 }
 

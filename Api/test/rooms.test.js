@@ -44,7 +44,7 @@ describe('room creation', () => {
 
   test('private room gets an invite code for its owner', () => {
     assert.equal(privateRoom.visibility, 'PRIVATE');
-    assert.match(privateRoom.inviteCode, /^[0-9A-F]{8}$/);
+    assert.match(privateRoom.inviteCode, /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{10}$/);
   });
 
   test('rejects missing name', async () => {

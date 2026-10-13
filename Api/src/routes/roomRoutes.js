@@ -9,7 +9,9 @@ import {
   invite,
   removeInvite,
   remove,
+  regenerateCode,
 } from '../controllers/roomController.js';
+import { joinCodeLimiter } from '../middleware/rateLimit.js';
 
 const router = Router();
 
@@ -163,8 +165,13 @@ router.get('/mine', mine);
  *         description: VALIDATION_ERROR
  *       404:
  *         description: INVALID_INVITE_CODE
+ *       429:
+ *         description: RATE_LIMITED (tentatives de code limitées par utilisateur, budget partagé avec /api/playlists/join)
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Error' }
  */
-router.post('/join', join);
+router.post('/join', joinCodeLimiter, join);
 
 /**
  * @swagger
@@ -237,6 +244,38 @@ router.delete('/:id', remove);
  *         description: ROOM_NOT_FOUND ou USER_NOT_FOUND
  */
 router.post('/:id/invites', invite);
+
+/**
+ * @swagger
+ * /api/rooms/{id}/invite-code:
+ *   post:
+ *     summary: Régénérer le code d'invitation d'une salle privée (propriétaire)
+ *     description: >
+ *       Remplace le code d'invitation ; l'ancien code est immédiatement refusé
+ *       (INVALID_INVITE_CODE). Les invités existants conservent leur accès.
+ *     tags: [Rooms]
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *     responses:
+ *       200:
+ *         description: Nouveau code (10 caractères, alphabet sans I, O, 0, 1)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 inviteCode: { type: string, example: 'K7QX2MZP9D' }
+ *       403:
+ *         description: NOT_ROOM_OWNER
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Error' }
+ *       404:
+ *         description: ROOM_NOT_FOUND
+ *       409:
+ *         description: ROOM_NOT_PRIVATE (une salle publique n'a pas de code)
+ */
+router.post('/:id/invite-code', regenerateCode);
 
 /**
  * @swagger

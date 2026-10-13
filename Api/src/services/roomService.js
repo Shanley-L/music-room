@@ -1,9 +1,5 @@
-import { randomBytes } from 'crypto';
 import prisma from '../lib/prisma.js';
-
-function generateInviteCode() {
-  return randomBytes(4).toString('hex').toUpperCase();
-}
+import { normalizeInviteCode, withFreshInviteCode } from '../lib/inviteCode.js';
 
 const EARTH_RADIUS_M = 6371000;
 
@@ -42,18 +38,17 @@ export function sanitizeRoomForUser(room, userId) {
 }
 
 export async function createRoom({ name, visibility, license, ownerId, geoOptions }) {
-  const inviteCode = visibility === 'PRIVATE' ? generateInviteCode() : null;
+  const data = {
+    name,
+    visibility: visibility ?? 'PUBLIC',
+    license: license ?? 'EVERYONE',
+    inviteCode: null,
+    ownerId,
+    ...geoOptions,
+  };
 
-  return prisma.room.create({
-    data: {
-      name,
-      visibility: visibility ?? 'PUBLIC',
-      license: license ?? 'EVERYONE',
-      inviteCode,
-      ownerId,
-      ...geoOptions,
-    },
-  });
+  if (data.visibility !== 'PRIVATE') return prisma.room.create({ data });
+  return withFreshInviteCode((inviteCode) => prisma.room.create({ data: { ...data, inviteCode } }));
 }
 
 export async function listPublicRooms() {
@@ -89,7 +84,8 @@ export async function getRoomById(id) {
 }
 
 export async function joinRoomByCode(inviteCode, userId) {
-  const room = await prisma.room.findUnique({ where: { inviteCode } });
+  const code = normalizeInviteCode(inviteCode);
+  const room = code ? await prisma.room.findUnique({ where: { inviteCode: code } }) : null;
 
   if (!room) {
     return { error: 'Code invalide', code: 'INVALID_INVITE_CODE', status: 404 };
@@ -139,6 +135,37 @@ export async function removeInvite(roomId, ownerId, userId) {
   }
 
   return { ok: true };
+}
+
+/**
+ * Owner only: replaces the invite code of a private room. The previous code stops
+ * working immediately; users who already joined keep their invitation.
+ */
+export async function regenerateInviteCode(roomId, ownerId) {
+  const room = await prisma.room.findUnique({ where: { id: roomId } });
+
+  if (!room) return { error: 'Salle introuvable', code: 'ROOM_NOT_FOUND', status: 404 };
+  if (room.ownerId !== ownerId) {
+    return { error: 'Accès refusé', code: 'NOT_ROOM_OWNER', status: 403 };
+  }
+  if (room.visibility !== 'PRIVATE') {
+    return {
+      error: 'Seules les salles privées ont un code d\'invitation',
+      code: 'ROOM_NOT_PRIVATE',
+      status: 409,
+    };
+  }
+
+  try {
+    const updated = await withFreshInviteCode((inviteCode) =>
+      prisma.room.update({ where: { id: roomId }, data: { inviteCode }, select: { inviteCode: true } })
+    );
+    return { inviteCode: updated.inviteCode };
+  } catch (err) {
+    // Deleted between the ownership check and the update.
+    if (err?.code === 'P2025') return { error: 'Salle introuvable', code: 'ROOM_NOT_FOUND', status: 404 };
+    throw err;
+  }
 }
 
 export async function deleteRoom(roomId, ownerId) {

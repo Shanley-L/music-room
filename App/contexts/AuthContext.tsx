@@ -22,13 +22,18 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string; emailVerificationRequired?: boolean; email?: string }>;
   register: (email: string, password: string, name: string) => Promise<{ success: boolean; error?: string; user?: User; accessToken?: string; refreshToken?: string }>;
   logout: () => Promise<void>;
-  oauthLogin: (provider: 'google', name?: string, email?: string) => Promise<{ success: boolean; error?: string }>;
-  googleLogin: (token?: string, idToken?: string) => Promise<{ success: boolean; error?: string }>;
+  /** Sign in / sign up with a Google ID token, verified by the API. */
+  googleLogin: (idToken: string) => Promise<{ success: boolean; error?: string }>;
+  /** DEV ONLY: simulated Google login, works only when the API has ALLOW_DEV_OAUTH=true. */
+  devOAuthLogin: () => Promise<{ success: boolean; error?: string }>;
   verifyEmail: (code: string, email?: string) => Promise<{ success: boolean; error?: string }>;
   forgotPassword: (email: string) => Promise<{ success: boolean; error?: string; resetCode?: string }>;
   resetPassword: (email: string, code: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
   updateProfile: (data: Partial<User>) => Promise<{ success: boolean; error?: string }>;
-  linkOAuth: (provider: 'google', providerId: string) => Promise<{ success: boolean; error?: string }>;
+  /** Links the Google account behind `idToken` to the signed-in user. */
+  linkGoogle: (idToken: string) => Promise<{ success: boolean; error?: string }>;
+  /** DEV ONLY: links a simulated Google account (API flag ALLOW_DEV_OAUTH=true). */
+  devLinkOAuth: () => Promise<{ success: boolean; error?: string }>;
   refreshProfile: () => Promise<void>;
 }
 
@@ -137,26 +142,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const oauthLogin = async (provider: 'google', mockName?: string, mockEmail?: string) => {
+  const authWithBody = async (path: string, body: object, fallbackError: string) => {
     try {
-      // Generated OAuth ID simulation for dev / cross-platform test
-      const providerId = `${provider}_id_${Date.now().toString(36)}`;
-      const name = mockName || 'Google Explorer';
-      const email = mockEmail || `${provider}_${Date.now()}@musicroom.social`;
-
-      const res = await apiFetch('/api/auth/oauth', {
-        method: 'POST',
-        body: JSON.stringify({
-          provider,
-          providerId,
-          email,
-          name,
-        }),
-      });
-      const data = await res.json();
+      const res = await apiFetch(path, { method: 'POST', body: JSON.stringify(body) });
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        return { success: false, error: data.error || 'Erreur OAuth' };
+        return { success: false, error: data.error || fallbackError };
       }
 
       await saveSession(data.accessToken, data.refreshToken, data.user);
@@ -166,26 +158,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const googleLogin = async (googleAccessToken?: string, googleIdToken?: string) => {
-    try {
-      const res = await apiFetch('/api/auth/google', {
-        method: 'POST',
-        body: JSON.stringify({
-          token: googleAccessToken,
-          idToken: googleIdToken,
-        }),
-      });
-      const data = await res.json();
+  const googleLogin = (idToken: string) =>
+    authWithBody('/api/auth/google', { idToken }, 'Erreur de connexion Google');
 
-      if (!res.ok) {
-        return { success: false, error: data.error || 'Erreur Google Auth' };
-      }
-
-      await saveSession(data.accessToken, data.refreshToken, data.user);
-      return { success: true };
-    } catch (e: any) {
-      return { success: false, error: e.message || 'Impossible de joindre le serveur' };
-    }
+  const devOAuthLogin = () => {
+    // Simulated identity: the API accepts it only with ALLOW_DEV_OAUTH=true outside production.
+    const providerId = `dev_${Date.now().toString(36)}`;
+    return authWithBody(
+      '/api/auth/oauth',
+      { provider: 'google', providerId, name: 'Google Explorer (dev)' },
+      'Connexion Google simulée indisponible'
+    );
   };
 
   const logout = async () => {
@@ -270,14 +253,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const linkOAuth = async (provider: 'google', providerId: string) => {
+  const linkWithBody = async (path: string, body: object) => {
     try {
-      const res = await apiFetch('/api/auth/link-oauth', {
-        method: 'POST',
-        body: JSON.stringify({ provider, providerId }),
-      });
-      const data = await res.json();
-      if (!res.ok) return { success: false, error: data.error };
+      const res = await apiFetch(path, { method: 'POST', body: JSON.stringify(body) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return { success: false, error: data.error || 'Impossible de lier ce compte' };
       setUser(data.user);
       await AsyncStorage.setItem(USER_KEY, JSON.stringify(data.user));
       return { success: true };
@@ -285,6 +265,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, error: e.message };
     }
   };
+
+  const linkGoogle = (idToken: string) => linkWithBody('/api/auth/link-google', { idToken });
+
+  const devLinkOAuth = () =>
+    linkWithBody('/api/auth/link-oauth', { provider: 'google', providerId: `dev_link_${Date.now().toString(36)}` });
 
   const refreshProfile = async () => {
     await fetchMe();
@@ -299,13 +284,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         login,
         register,
         logout,
-        oauthLogin,
         googleLogin,
+        devOAuthLogin,
         verifyEmail,
         forgotPassword,
         resetPassword,
         updateProfile,
-        linkOAuth,
+        linkGoogle,
+        devLinkOAuth,
         refreshProfile,
       }}
     >

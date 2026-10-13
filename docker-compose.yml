@@ -3,7 +3,7 @@ services:
     image: docker.io/library/postgres:16-alpine
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     environment:
       POSTGRES_USER: musicroom
       POSTGRES_PASSWORD: musicroom
@@ -15,14 +15,14 @@ services:
     image: docker.io/library/redis:7-alpine
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
 
   mailpit:
     image: docker.io/axllent/mailpit:latest
     restart: unless-stopped
     ports:
-      - "1025:1025" # SMTP port
-      - "8025:8025" # Web UI
+      - "${MAILPIT_SMTP_PORT:-1025}:1025" # SMTP port
+      - "${MAILPIT_UI_PORT:-8025}:8025" # Web UI
     environment:
       - MP_MAX_MESSAGES=500
 
@@ -30,12 +30,13 @@ services:
     build:
       context: ./Api
     ports:
-      - "3000:3000"
+      - "${API_PORT:-3000}:3000"
     volumes:
       - ./Api:/usr/src/app
       - /usr/src/app/node_modules
     environment:
       - NODE_ENV=development
+      - PORT=3000
       - CHOKIDAR_USEPOLLING=true
       - DATABASE_URL=postgresql://musicroom:musicroom@postgres:5432/musicroom
       - REDIS_URL=redis://redis:6379
@@ -48,16 +49,17 @@ services:
         condition: service_started
       mailpit:
         condition: service_started
-    command: sh -c "until npx prisma db push; do echo 'Waiting for database...'; sleep 2; done && npm run dev"
+    # JWT secrets, Google and SMTP credentials are read from Api/.env (mounted with ./Api).
+    command: sh -c "npx prisma generate && until npx prisma db push; do echo 'Waiting for database...'; sleep 2; done && npm run dev"
 
   app:
     build:
       context: ./App
     ports:
-      - "19000:19000"
-      - "19001:19001"
-      - "19002:19002"
-      - "8081:8081"
+      - "${EXPO_PORT:-19000}:19000"
+      - "${EXPO_DEVTOOLS_PORT:-19001}:19001"
+      - "${EXPO_UI_PORT:-19002}:19002"
+      - "${METRO_PORT:-8081}:8081"
     volumes:
       - ./App:/app
       - /app/node_modules

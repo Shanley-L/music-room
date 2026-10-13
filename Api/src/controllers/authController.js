@@ -1,4 +1,10 @@
 import * as authService from '../services/authService.js';
+import {
+  verifyGoogleToken,
+  GoogleAuthError,
+  allowedGoogleClientIds,
+  devOAuthEnabled,
+} from '../lib/googleVerify.js';
 
 export async function register(req, res) {
   const { email, password, name } = req.body;
@@ -71,95 +77,106 @@ export async function verifyEmail(req, res) {
 
   const result = await authService.verifyEmail(email, code);
   if (result.error) {
-    return res.status(result.status).json({ error: result.error });
+    const body = { error: result.error };
+    if (result.code) body.code = result.code;
+    return res.status(result.status).json(body);
   }
 
   return res.json(result);
 }
 
-export async function googleAuth(req, res) {
-  const { token, idToken } = req.body;
+function sendError(res, result) {
+  const body = { error: result.error };
+  if (result.code) body.code = result.code;
+  return res.status(result.status).json(body);
+}
 
-  if (!token && !idToken) {
-    return res.status(400).json({ error: 'Token Google manquant' });
-  }
-
+/** Verifies the Google token from the body; sends the error response and returns null on failure. */
+async function verifiedGoogleIdentity(req, res) {
+  const { idToken, token, accessToken } = req.body || {};
   try {
-    let googleUser = null;
-
-    if (token) {
-      // Verify via Google UserInfo endpoint
-      const response = await fetch('https://www.googleapis.com/userinfo/v2/me', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (response.ok) {
-        googleUser = await response.json();
-      }
-    }
-
-    if (!googleUser && idToken) {
-      // Verify id_token via Google tokeninfo
-      const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${idToken}`);
-      if (response.ok) {
-        googleUser = await response.json();
-      }
-    }
-
-    if (!googleUser || (!googleUser.id && !googleUser.sub)) {
-      return res.status(401).json({ error: 'Token Google invalide ou expiré' });
-    }
-
-    const providerId = googleUser.id || googleUser.sub;
-    const email = googleUser.email;
-    const name = googleUser.name || 'Utilisateur Google';
-    const avatarUrl = googleUser.picture || null;
-
-    const result = await authService.oauthLogin({
-      provider: 'google',
-      providerId,
-      email,
-      name,
-      avatarUrl,
+    return await verifyGoogleToken({
+      idToken: typeof idToken === 'string' ? idToken : undefined,
+      accessToken:
+        typeof accessToken === 'string' ? accessToken : typeof token === 'string' ? token : undefined,
     });
-
-    if (result.error) {
-      return res.status(result.status).json({ error: result.error });
-    }
-
-    return res.json(result);
   } catch (err) {
-    console.error('[Google OAuth Error]', err);
-    return res.status(500).json({ error: 'Erreur lors de la vérification Google' });
+    if (err instanceof GoogleAuthError) {
+      sendError(res, err);
+      return null;
+    }
+    throw err;
   }
 }
 
-export async function oauthLogin(req, res) {
-  const { provider, providerId, email, name, avatarUrl } = req.body;
+/** POST /auth/google: login or sign-up with a Google ID token (or access token). */
+export async function googleAuth(req, res) {
+  const identity = await verifiedGoogleIdentity(req, res);
+  if (!identity) return;
 
-  if (!provider || !providerId) {
+  const result = await authService.googleLogin(identity);
+  if (result.error) return sendError(res, result);
+  return res.json(result);
+}
+
+/** POST /auth/link-google: links the Google account behind the token to the caller. */
+export async function linkGoogle(req, res) {
+  const identity = await verifiedGoogleIdentity(req, res);
+  if (!identity) return;
+
+  const result = await authService.linkGoogleAccount(req.user.id, identity);
+  if (result.error) return sendError(res, result);
+  return res.json(result);
+}
+
+/** GET /auth/providers: what the login screen may offer. */
+export function providers(req, res) {
+  return res.json({
+    google: allowedGoogleClientIds().length > 0,
+    devOAuth: devOAuthEnabled(),
+  });
+}
+
+const devDisabled = (res) => res.status(404).json({ error: 'Route introuvable', code: 'NOT_FOUND' });
+
+function devProviderId(value) {
+  return typeof value === 'string' && /^[A-Za-z0-9_.-]{1,64}$/.test(value) ? value : null;
+}
+
+/** POST /auth/oauth: DEV ONLY simulated login (ALLOW_DEV_OAUTH=true, never in production). */
+export async function oauthLogin(req, res) {
+  if (!devOAuthEnabled()) return devDisabled(res);
+
+  const { provider, email, name } = req.body || {};
+  const providerId = devProviderId(req.body?.providerId);
+  if (provider !== 'google' || !providerId) {
     return res.status(400).json({ error: 'provider (google) et providerId sont obligatoires' });
   }
-
-  const result = await authService.oauthLogin({ provider, providerId, email, name, avatarUrl });
-  if (result.error) {
-    return res.status(result.status).json({ error: result.error });
+  if (email !== undefined && (typeof email !== 'string' || email.length > 254)) {
+    return res.status(400).json({ error: 'email invalide' });
   }
 
+  const result = await authService.devOAuthLogin({
+    providerId,
+    email,
+    name: typeof name === 'string' ? name : undefined,
+  });
+  if (result.error) return sendError(res, result);
   return res.json(result);
 }
 
+/** POST /auth/link-oauth: DEV ONLY simulated link (ALLOW_DEV_OAUTH=true, never in production). */
 export async function linkOAuth(req, res) {
-  const { provider, providerId } = req.body;
+  if (!devOAuthEnabled()) return devDisabled(res);
 
-  if (!provider || !providerId) {
+  const { provider } = req.body || {};
+  const providerId = devProviderId(req.body?.providerId);
+  if (provider !== 'google' || !providerId) {
     return res.status(400).json({ error: 'provider et providerId sont obligatoires' });
   }
 
-  const result = await authService.linkOAuthAccount(req.user.id, { provider, providerId });
-  if (result.error) {
-    return res.status(result.status).json({ error: result.error });
-  }
-
+  const result = await authService.devLinkOAuth(req.user.id, { providerId });
+  if (result.error) return sendError(res, result);
   return res.json(result);
 }
 
@@ -187,7 +204,9 @@ export async function resetPassword(req, res) {
 
   const result = await authService.resetPassword(email, resetCode, newPassword);
   if (result.error) {
-    return res.status(result.status).json({ error: result.error });
+    const body = { error: result.error };
+    if (result.code) body.code = result.code;
+    return res.status(result.status).json(body);
   }
 
   return res.json(result);

@@ -15,10 +15,11 @@ import {
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
+import { GoogleAuth } from '../components/GoogleAuth';
 
 export default function RegisterScreen() {
   const router = useRouter();
-  const { register, verifyEmail, login } = useAuth();
+  const { register, verifyEmail, login, googleLogin } = useAuth();
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -57,6 +58,20 @@ export default function RegisterScreen() {
       setVerifyModalVisible(true);
     } else {
       setErrorMessage(res.error || 'Erreur lors de l’inscription.');
+    }
+  };
+
+  // Google sign-up: the API creates the account from the verified Google identity.
+  const handleGoogleIdToken = async (idToken: string) => {
+    setIsLoading(true);
+    setErrorMessage('');
+    const res = await googleLogin(idToken);
+    setIsLoading(false);
+
+    if (res.success) {
+      router.replace('/home');
+    } else {
+      setErrorMessage(res.error || 'Erreur lors de l’inscription avec Google.');
     }
   };
 
@@ -175,6 +190,25 @@ export default function RegisterScreen() {
             )}
           </TouchableOpacity>
         </View>
+
+        <View style={styles.dividerContainer}>
+          <View style={styles.dividerLine} />
+          <Text style={styles.dividerText}>OU</Text>
+          <View style={styles.dividerLine} />
+        </View>
+
+        <GoogleAuth onIdToken={handleGoogleIdToken} onError={setErrorMessage}>
+          {({ prompt, ready }) => (
+            <TouchableOpacity
+              style={[styles.googleButton, (!ready || isLoading) && styles.disabledButton]}
+              onPress={prompt}
+              disabled={!ready || isLoading}
+            >
+              <Ionicons name="logo-google" size={20} color="#EA4335" />
+              <Text style={styles.googleText}>S’inscrire avec Google</Text>
+            </TouchableOpacity>
+          )}
+        </GoogleAuth>
 
         <View style={styles.footer}>
           <Text style={styles.footerText}>Déjà un compte ?</Text>
@@ -321,6 +355,39 @@ const styles = StyleSheet.create({
     color: '#000',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  dividerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 16,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#2a2a2a',
+  },
+  dividerText: {
+    color: '#666',
+    fontSize: 11,
+    fontWeight: '700',
+    marginHorizontal: 10,
+  },
+  googleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#1e1e1e',
+    borderColor: '#333',
+    borderWidth: 1,
+    borderRadius: 24,
+    paddingVertical: 12,
+    marginBottom: 16,
+  },
+  googleText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 10,
   },
   footer: {
     flexDirection: 'row',

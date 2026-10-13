@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import * as userController from '../controllers/userController.js';
 import { authMiddleware, optionalAuth } from '../middleware/auth.js';
+import { userSearchLimiter } from '../middleware/rateLimit.js';
 
 const router = Router();
 
@@ -19,6 +20,8 @@ router.put('/me', authMiddleware, userController.updateMe);
  *         required: true
  *         schema: { type: string, minLength: 2, maxLength: 100 }
  *     responses:
+ *       429:
+ *         description: RATE_LIMITED
  *       200:
  *         description: Utilisateurs trouvés
  *         content:
@@ -34,7 +37,7 @@ router.put('/me', authMiddleware, userController.updateMe);
  *       401:
  *         description: Non authentifié
  */
-router.get('/search', authMiddleware, userController.search);
+router.get('/search', authMiddleware, userSearchLimiter, userController.search);
 router.get('/:id', optionalAuth, userController.getProfile);
 
 export default router;

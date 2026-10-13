@@ -15,10 +15,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { useApiConfig } from '../../contexts/ApiConfigContext';
+import { GoogleAuth, useDevOAuthAvailable } from '../../components/GoogleAuth';
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { user, updateProfile, linkOAuth, logout, verifyEmail } = useAuth();
+  const { user, updateProfile, linkGoogle, devLinkOAuth, logout, verifyEmail } = useAuth();
+  const devOAuthAvailable = useDevOAuthAvailable();
   const { backendUrl, setBackendUrl } = useApiConfig();
 
   // Profile editable fields
@@ -66,14 +68,24 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleLinkOAuth = async (provider: 'google') => {
-    const mockId = `google_linked_${Date.now().toString(36)}`;
-    const res = await linkOAuth(provider, mockId);
+  const showLinkResult = (res: { success: boolean; error?: string }) => {
     if (res.success) {
       Alert.alert('Compte lié', 'Votre compte Google a été associé avec succès !');
     } else {
       Alert.alert('Erreur', res.error || 'Impossible de lier ce compte.');
     }
+  };
+
+  const handleLinkGoogle = async (idToken: string) => {
+    showLinkResult(await linkGoogle(idToken));
+  };
+
+  const handleGoogleError = (message: string) => {
+    Alert.alert('Google', message);
+  };
+
+  const handleDevLink = async () => {
+    showLinkResult(await devLinkOAuth());
   };
 
   const handleVerifyEmail = async () => {
@@ -261,12 +273,24 @@ export default function ProfileScreen() {
               <Text style={styles.linkedText}>Lié</Text>
             </View>
           ) : (
-            <TouchableOpacity
-              style={styles.linkActionBtn}
-              onPress={() => handleLinkOAuth('google')}
-            >
-              <Text style={styles.linkActionText}>Lier</Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {devOAuthAvailable && (
+                <TouchableOpacity style={styles.linkActionBtn} onPress={handleDevLink}>
+                  <Text style={styles.linkActionText}>Lier (dev)</Text>
+                </TouchableOpacity>
+              )}
+              <GoogleAuth onIdToken={handleLinkGoogle} onError={handleGoogleError}>
+                {({ prompt, ready }) => (
+                  <TouchableOpacity
+                    style={[styles.linkActionBtn, !ready && { opacity: 0.6 }]}
+                    onPress={prompt}
+                    disabled={!ready}
+                  >
+                    <Text style={styles.linkActionText}>Lier</Text>
+                  </TouchableOpacity>
+                )}
+              </GoogleAuth>
+            </View>
           )}
         </View>
       </View>

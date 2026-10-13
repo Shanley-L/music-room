@@ -9,6 +9,7 @@ import {
   updateDelegation,
   removeDelegation,
 } from '../controllers/deviceController.js';
+import { deviceRegisterLimiter } from '../middleware/rateLimit.js';
 
 // Mounted behind authMiddleware in app.js.
 const router = Router();
@@ -69,6 +70,8 @@ const router = Router();
  *         application/json:
  *           schema: { $ref: '#/components/schemas/RegisterDeviceInput' }
  *     responses:
+ *       429:
+ *         description: RATE_LIMITED
  *       201:
  *         description: Appareil créé
  *         content:
@@ -100,7 +103,7 @@ const router = Router();
  *       401:
  *         description: Non authentifié
  */
-router.post('/', register);
+router.post('/', deviceRegisterLimiter, register);
 router.get('/', list);
 
 /**

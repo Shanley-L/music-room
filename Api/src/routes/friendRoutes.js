@@ -7,6 +7,7 @@ import {
   list,
   remove,
 } from '../controllers/friendController.js';
+import { friendRequestLimiter } from '../middleware/rateLimit.js';
 
 // Mounted behind authMiddleware in app.js.
 const router = Router();
@@ -70,6 +71,8 @@ router.get('/', list);
  *             properties:
  *               userId: { type: string }
  *     responses:
+ *       429:
+ *         description: RATE_LIMITED
  *       201:
  *         description: Demande créée (PENDING)
  *         content:
@@ -107,7 +110,7 @@ router.get('/', list);
  *                   type: array
  *                   items: { $ref: '#/components/schemas/FriendRequest' }
  */
-router.post('/requests', createRequest);
+router.post('/requests', friendRequestLimiter, createRequest);
 router.get('/requests', requests);
 
 /**

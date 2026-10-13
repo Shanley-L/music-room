@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import prisma from './prisma.js';
 import sharedRedis, { isTokenBlacklisted } from './redis.js';
 import { JWT_SECRET } from '../middleware/auth.js';
+import { sanitizeLogValue } from '../middleware/logger.js';
 import { getRoomById, isUserAllowedInRoom } from '../services/roomService.js';
 import { getTracksForRoom } from '../services/trackService.js';
 import { isUserAllowedInPlaylist, getPlaylistTracks } from '../services/playlistService.js';
@@ -55,9 +56,9 @@ function clientInfo(socket) {
   const auth = socket.handshake?.auth || {};
   const headers = socket.handshake?.headers || {};
   return {
-    platform: String(auth.platform || headers['x-platform'] || headers['user-agent'] || 'Unknown Platform'),
-    device: String(auth.device || headers['x-device'] || 'Unknown Device'),
-    appVersion: String(auth.appVersion || headers['x-app-version'] || '1.0.0'),
+    platform: sanitizeLogValue(auth.platform || headers['x-platform'] || headers['user-agent'] || 'Unknown Platform'),
+    device: sanitizeLogValue(auth.device || headers['x-device'] || 'Unknown Device'),
+    appVersion: sanitizeLogValue(auth.appVersion || headers['x-app-version'] || '1.0.0', 50),
     ip: String(socket.handshake?.address || ''),
   };
 }
@@ -89,9 +90,9 @@ function logSocket(socket, action, status, userId = socket.data?.userId || null)
     });
 }
 
-/** Client-supplied ids are truncated and stripped of line breaks before logging. */
+/** Client-supplied ids are truncated and stripped of control characters before logging. */
 function logId(id) {
-  return String(id).slice(0, 64).replace(/[\r\n]/g, ' ');
+  return sanitizeLogValue(id, 64);
 }
 
 /** Disconnects the socket when its JWT expires; cleared on disconnect. */

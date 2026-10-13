@@ -10,6 +10,15 @@ if (!process.env.TEST_DATABASE_URL) {
 }
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
 
+// Tests sign their own tokens: fixed secrets (32+ characters, distinct, as the API
+// requires) so `npm test` does not depend on the secrets of Api/.env.
+process.env.JWT_SECRET = 'test-access-secret-0123456789abcdef0123456789';
+process.env.JWT_REFRESH_SECRET = 'test-refresh-secret-0123456789abcdef012345678';
+
+// Suites register many devices for the same owner; production keeps the default
+// limit. A suite may set its own value before importing this module.
+process.env.RATE_LIMIT_DEVICE_REGISTER_MAX ??= '1000';
+
 import { randomUUID } from 'crypto';
 import http from 'http';
 import jwt from 'jsonwebtoken';

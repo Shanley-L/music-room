@@ -11,7 +11,9 @@ import {
   joinByCode,
   inviteUser,
   removeInvite,
+  regenerateInviteCode,
 } from '../controllers/playlistController.js';
+import { joinCodeLimiter } from '../middleware/rateLimit.js';
 
 // Mounted behind authMiddleware in app.js: every route requires a JWT and the caller
 // is always `req.user.id` (userId/ownerId sent in body or query are ignored).
@@ -155,6 +157,8 @@ router.post('/', createPlaylist);
  *             properties:
  *               inviteCode: { type: string }
  *     responses:
+ *       429:
+ *         description: RATE_LIMITED
  *       200:
  *         description: Playlist rejointe
  *         content:
@@ -173,7 +177,7 @@ router.post('/', createPlaylist);
  *           application/json:
  *             schema: { $ref: '#/components/schemas/Error' }
  */
-router.post('/join', joinByCode);
+router.post('/join', joinCodeLimiter, joinByCode);
 
 /**
  * @swagger
@@ -303,6 +307,35 @@ router.delete('/:id', deletePlaylist);
  *         description: PLAYLIST_NOT_FOUND ou USER_NOT_FOUND
  */
 router.post('/:id/invites', inviteUser);
+
+/**
+ * @swagger
+ * /api/playlists/{id}/invite-code:
+ *   post:
+ *     summary: Régénérer le code d'invitation (propriétaire)
+ *     description: >
+ *       Remplace le code d'invitation ; l'ancien code est immédiatement refusé
+ *       (INVALID_INVITE_CODE). Les invitations existantes sont conservées.
+ *     tags: [Playlists]
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *     responses:
+ *       200:
+ *         description: Nouveau code (10 caractères, alphabet sans I, O, 0, 1)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 inviteCode: { type: string, example: 'K7QX2MZP9D' }
+ *       401:
+ *         description: Non authentifié
+ *       403:
+ *         description: NOT_PLAYLIST_OWNER
+ *       404:
+ *         description: PLAYLIST_NOT_FOUND
+ */
+router.post('/:id/invite-code', regenerateInviteCode);
 
 /**
  * @swagger
