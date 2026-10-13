@@ -44,12 +44,12 @@ function eventsFor(socket, key, id) {
 
 async function joinRoom(socket, roomId) {
   const ack = await emitAck(socket, 'room:join', { roomId });
-  assert.deepEqual(ack, { ok: true });
+  assert.equal(ack.ok, true);
 }
 
 async function joinPlaylist(socket, playlistId) {
   const ack = await emitAck(socket, 'playlist:join', { playlistId });
-  assert.deepEqual(ack, { ok: true });
+  assert.equal(ack.ok, true);
 }
 
 async function createPlaylist(user, body = {}) {

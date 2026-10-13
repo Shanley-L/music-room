@@ -7,6 +7,7 @@ import { JWT_SECRET } from '../middleware/auth.js';
 import { sanitizeLogValue } from '../middleware/logger.js';
 import { getRoomById, isUserAllowedInRoom } from '../services/roomService.js';
 import { getTracksForRoom } from '../services/trackService.js';
+import { getPlaybackState } from '../services/playbackService.js';
 import { isUserAllowedInPlaylist, getPlaylistTracks } from '../services/playlistService.js';
 import { canControl, COMMAND_RIGHTS } from '../services/delegationService.js';
 
@@ -148,7 +149,19 @@ async function handleRoomJoin(socket, payload, ack) {
     return null;
   };
 
-  return joinChecked(socket, ack, roomChannel(roomId), `room:join ${logId(roomId)}`, check);
+  // The ack carries the current playback state so a joining client starts in sync.
+  const ackWithSnapshot = async (result) => {
+    if (result?.ok) {
+      try {
+        result = { ...result, playback: await getPlaybackState(roomId) };
+      } catch (err) {
+        console.error('[Realtime] playback snapshot failed', err);
+      }
+    }
+    safeAck(ack, result);
+  };
+
+  return joinChecked(socket, ackWithSnapshot, roomChannel(roomId), `room:join ${logId(roomId)}`, check);
 }
 
 const STATUS_BY_CODE = {
@@ -600,6 +613,17 @@ export function emitRoomQueue(roomId) {
   );
 }
 
+/** Broadcasts `playback:updated` (full playback state, with `serverTime`) to the room. */
+export function emitRoomPlayback(roomId) {
+  return emitFreshState(
+    `playback:${roomId}`,
+    () => getPlaybackState(roomId),
+    (state) => {
+      if (state) emitToRoom(roomId, 'playback:updated', state);
+    }
+  );
+}
+
 /** Broadcasts `playlist:tracks-updated {playlistId, tracks}` with the full ordered list. */
 export function emitPlaylistTracks(playlistId) {
   return emitFreshState(
@@ -657,6 +681,23 @@ export async function revokeRoomAccess(roomId, userId) {
   if (!io) return;
   emitToUsers([userId], 'room:revoked', { roomId });
   await evictFromRoom(roomId, userId);
+}
+
+/**
+ * Users with sockets on a room channel that `allowed(userId)` rejects lose access
+ * (e.g. the room became private): see `revokeRoomAccess`. Never throws.
+ */
+export async function revokeRoomSubscribers(roomId, allowed) {
+  if (!io) return;
+  let userIds;
+  try {
+    const sockets = await io.in(roomChannel(roomId)).fetchSockets();
+    userIds = [...new Set(sockets.map((s) => s.data?.userId).filter((id) => id && !allowed(id)))];
+  } catch (err) {
+    console.error(`[Realtime] listing room:${roomId} sockets failed`, err);
+    return;
+  }
+  await Promise.all(userIds.map((userId) => revokeRoomAccess(roomId, userId)));
 }
 
 /**

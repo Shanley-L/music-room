@@ -35,7 +35,7 @@ Session :
 
 | Événement | Payload | Ack succès | Ack erreur |
 |---|---|---|---|
-| `room:join` | `{ roomId }` | `{ ok: true }` | `{ ok: false, code }` : `ROOM_FORBIDDEN`, `ROOM_NOT_FOUND`, `VALIDATION_ERROR`, `UNAUTHORIZED`, `TOO_MANY_CHANNELS` |
+| `room:join` | `{ roomId }` | `{ ok: true, playback }` (`playback` : état de lecture courant, voir `playback:updated`) | `{ ok: false, code }` : `ROOM_FORBIDDEN`, `ROOM_NOT_FOUND`, `VALIDATION_ERROR`, `UNAUTHORIZED`, `TOO_MANY_CHANNELS` |
 | `room:leave` | `{ roomId }` | `{ ok: true }` | `VALIDATION_ERROR` |
 | `playlist:join` | `{ playlistId }` | `{ ok: true }` | `PLAYLIST_FORBIDDEN`, `PLAYLIST_NOT_FOUND`, `VALIDATION_ERROR`, `UNAUTHORIZED`, `TOO_MANY_CHANNELS` |
 | `playlist:leave` | `{ playlistId }` | `{ ok: true }` | `VALIDATION_ERROR` |
@@ -58,10 +58,32 @@ Canaux internes : `room:<id>`, `playlist:<id>`, `device:<id>` (observateurs d'un
 | `track:removed` | `{ roomId, trackId }` | `DELETE /api/rooms/:roomId/tracks/:trackId` |
 | `vote:changed` | `{ roomId, trackId, voteCount }` | `POST` / `DELETE /api/rooms/:roomId/tracks/:trackId/vote` |
 | `queue:updated` | `{ roomId, queue }` (file complète, triée par `position`) | toutes les écritures ci-dessus |
+| `playback:updated` | état de lecture complet (voir ci-dessous) | `POST /api/rooms/:roomId/playback/{play,pause,resume,skip,ended}` quand l'état change |
+| `room:updated` | `{ roomId, room }` (champs publics, jamais `inviteCode` ni `invites`) | `PATCH /api/rooms/:id` |
 | `room:deleted` | `{ roomId }` | `DELETE /api/rooms/:id` |
 | `room:revoked` | `{ roomId }`, envoyé au canal `user:<id>` de l'utilisateur qui perd l'accès | `DELETE /api/rooms/:id/invites/:userId` sur une salle privée |
 
 `queue:updated` est partagé par tous les clients de la salle : ses titres ne portent **pas** `hasVoted`. Ce champ (booléen : l'appelant a voté pour ce titre) n'existe que dans les réponses REST `GET /api/rooms/:roomId/tracks`, `POST` et `DELETE /api/rooms/:roomId/tracks/:trackId/vote`. Un client qui reçoit `queue:updated` conserve son propre ensemble de votes (issu de ces réponses) ou refait un `GET`.
+
+### Lecture synchronisée d'une salle (Track Vote)
+
+Le serveur est la source de vérité de la lecture ; il ne joue pas d'audio. Chaque membre joue le même extrait (`preview`) à la même position. Les transitions (`play`, `pause`, `resume`, `skip`, `ended`) s'exécutent sous le verrou consultatif de la salle et sont idempotentes.
+
+`playback:updated` (et `ack.playback` de `room:join`, et `GET /api/rooms/:roomId/playback`) :
+
+```json
+{ "roomId": "…", "status": "IDLE | PLAYING | PAUSED",
+  "currentTrack": { "id": "…", "title": "…", "preview": "…", "durationMs": 30000, "…": "…" },
+  "startedAt": "ISO (heure serveur où la position 0 aurait été atteinte, null hors lecture)",
+  "positionMs": 12345, "serverTime": "ISO" }
+```
+
+- **Horloge.** Le client calcule `skew = Date.parse(serverTime) - Date.now()` à la réception, puis la position attendue en lecture est `Date.now() + skew - Date.parse(startedAt)`. En pause, la position est `positionMs`.
+- **Durée.** `track.duration` (secondes), plafonnée à 30 s (extrait Deezer) ; 30 s si absente.
+- **File.** Seuls les titres `QUEUED` sont dans `queue:updated` et peuvent être votés (`TRACK_NOT_QUEUED` sinon). Le titre en lecture n'y figure pas ; au changement de titre, `queue:updated` est aussi diffusé.
+- **`ended`** (tout membre) : accepté seulement pour le titre courant en lecture, une fois `durée - 2 s` écoulée ; sinon sans effet. Plusieurs clients peuvent le signaler : la salle n'avance qu'une fois. Un titre en lecture ne peut pas être supprimé (`TRACK_PLAYING`) : utiliser `skip`.
+- Une salle au repos ne démarre pas seule : le propriétaire appuie sur `play` (`NOTHING_TO_PLAY` si la file est vide). Si personne ne signale la fin d'un titre, le propriétaire peut `skip`.
+- Au passage d'une salle en privé (`PATCH`), les abonnés ni propriétaire ni invités reçoivent `room:revoked` puis quittent le canal.
 
 ### Playlists (Playlist Editor)
 

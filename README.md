@@ -5,7 +5,9 @@ back-end and a React Native (Expo) mobile app, and it implements all three
 services:
 
 - **Music Track Vote**: live events where users suggest tracks and vote; the
-  most-voted track moves up the queue. Public/private visibility; licenses:
+  most-voted track moves up the queue and plays next. Everyone in the room
+  listens to the same track in sync (server-driven playback); the owner controls
+  play/pause/skip and manages the room. Public/private visibility; licenses:
   everyone, invited only, or place + time window.
 - **Music Playlist Editor**: playlists edited by several users in real time.
   Public/private visibility; licenses: everyone edits, or invited users only.

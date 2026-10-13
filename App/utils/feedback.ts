@@ -15,6 +15,11 @@ const MESSAGES: Record<string, string> = {
   ROOM_BUSY: 'Événement occupé, réessayez.',
   INVALID_INVITE_CODE: "Code d'invitation invalide.",
   NOT_ROOM_OWNER: "Seul l'organisateur peut faire cette action.",
+  NOTHING_TO_PLAY: "La file d'attente est vide : suggérez un titre d'abord.",
+  NOTHING_PLAYING: 'Aucun titre en cours de lecture.',
+  TRACK_NOT_QUEUED: "Ce titre n'est plus dans la file d'attente.",
+  TRACK_PLAYING: 'Ce titre est en cours de lecture : passez-le avec « suivant ».',
+  ROOM_NOT_PRIVATE: "Seules les salles privées ont un code d'invitation.",
   USER_NOT_FOUND: 'Utilisateur introuvable.',
   GEO_CONFIG_REQUIRED:
     'Une zone (position et rayon) ou une plage horaire est requise pour la licence géo-horaire.',

@@ -256,3 +256,97 @@ export async function canVote(room, userId, position, now = new Date()) {
 
   return { ok: true };
 }
+
+/** OWNER, INVITED (has an invitation) or MEMBER (public room, not invited). */
+export async function getRoomRole(room, userId) {
+  if (room.ownerId === userId) return 'OWNER';
+  return (await isInvited(room, userId)) ? 'INVITED' : 'MEMBER';
+}
+
+/**
+ * Role and permissions of `userId` in a room they can access. Computed without a
+ * position: when the license needs one (geo zone), `canVote` stays true and
+ * `voteRequiresLocation` tells the client to send its position with the vote.
+ * `voteBlockedReason` is a French message when voting is (or may be) blocked.
+ */
+export async function describeAccess(room, userId) {
+  const myRole = await getRoomRole(room, userId);
+  const owner = myRole === 'OWNER';
+  const vote = await canVote(room, userId, null);
+
+  const needsLocation = !vote.ok && vote.code === 'LOCATION_REQUIRED';
+  return {
+    myRole,
+    permissions: {
+      canVote: vote.ok || needsLocation,
+      voteRequiresLocation: needsLocation,
+      voteBlockedReason: vote.ok ? null : vote.error,
+      voteBlockedCode: vote.ok ? null : vote.code,
+      canSuggest: true,
+      canControlPlayback: owner,
+      canManageRoom: owner,
+      canInvite: owner,
+      canRemoveTrack: owner,
+    },
+  };
+}
+
+/**
+ * Owner only: updates name, visibility, license and geo/time settings. `changes`
+ * holds the already validated fields; the result is checked against the merged room.
+ * Going private creates an invite code, going public drops it.
+ */
+export async function updateRoom(roomId, ownerId, changes) {
+  const room = await prisma.room.findUnique({ where: { id: roomId } });
+
+  if (!room) return { error: 'Salle introuvable', code: 'ROOM_NOT_FOUND', status: 404 };
+  if (room.ownerId !== ownerId) {
+    return { error: 'Accès refusé', code: 'NOT_ROOM_OWNER', status: 403 };
+  }
+
+  const merged = { ...room, ...changes };
+
+  if (!!(merged.latitude != null) !== !!(merged.longitude != null) ||
+      !!(merged.latitude != null) !== !!(merged.radiusM != null)) {
+    return {
+      error: 'latitude, longitude et radiusM doivent être fournis ensemble',
+      code: 'VALIDATION_ERROR',
+      status: 400,
+    };
+  }
+  if (merged.voteStartAt && merged.voteEndAt && merged.voteStartAt >= merged.voteEndAt) {
+    return { error: 'voteStartAt doit précéder voteEndAt', code: 'VALIDATION_ERROR', status: 400 };
+  }
+  if (merged.license === 'GEO_TIME_RESTRICTED' && !hasZone(merged) && !hasWindow(merged)) {
+    return {
+      error: 'Une zone (latitude, longitude, radiusM) ou une plage horaire (voteStartAt, voteEndAt) est requise pour la licence GEO_TIME_RESTRICTED',
+      code: 'GEO_CONFIG_REQUIRED',
+      status: 400,
+    };
+  }
+
+  const data = { ...changes };
+  try {
+    if (merged.visibility === 'PUBLIC') {
+      data.inviteCode = null;
+      return { room: await prisma.room.update({ where: { id: roomId }, data }) };
+    }
+    if (room.inviteCode) {
+      return { room: await prisma.room.update({ where: { id: roomId }, data }) };
+    }
+    return {
+      room: await withFreshInviteCode((inviteCode) =>
+        prisma.room.update({ where: { id: roomId }, data: { ...data, inviteCode } })
+      ),
+    };
+  } catch (err) {
+    if (err?.code === 'P2025') return { error: 'Salle introuvable', code: 'ROOM_NOT_FOUND', status: 404 };
+    throw err;
+  }
+}
+
+/** Fields safe to broadcast to every room subscriber (no invite code, no invitees). */
+export function publicRoomFields(room) {
+  const { inviteCode, invites, ...rest } = room;
+  return rest;
+}

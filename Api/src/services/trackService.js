@@ -1,55 +1,9 @@
 import prisma from '../lib/prisma.js';
-
-// Interactive transactions queue behind a per-room advisory lock, so allow
-// enough time for a burst of concurrent votes on the same room to drain.
-const TX_OPTIONS = { maxWait: 15000, timeout: 20000 };
-
-class ServiceError extends Error {
-  constructor(status, code, message) {
-    super(message);
-    this.status = status;
-    this.code = code;
-  }
-}
-
-function isUniqueViolation(err) {
-  return (
-    err?.code === 'P2002' ||
-    err?.cause?.code === '23505' ||
-    /Unique constraint failed/i.test(err?.message || '')
-  );
-}
-
-/**
- * Runs `fn` in a transaction serialized per room with a Postgres advisory lock.
- * ServiceErrors thrown inside roll the transaction back and are returned as
- * `{ error, code, status }`.
- */
-async function withRoomLock(roomId, fn) {
-  try {
-    try {
-      return await prisma.$transaction(async (tx) => {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${roomId}))`;
-        return fn(tx);
-      }, TX_OPTIONS);
-    } catch (err) {
-      // P2028: transaction could not start in time or exceeded its timeout
-      if (err?.code === 'P2028') {
-        throw new ServiceError(503, 'ROOM_BUSY', 'Salle occupée, réessayez');
-      }
-      throw err;
-    }
-  } catch (err) {
-    if (err instanceof ServiceError) {
-      return { error: err.message, code: err.code, status: err.status };
-    }
-    throw err;
-  }
-}
+import { ServiceError, isUniqueViolation, withRoomLock } from '../lib/roomLock.js';
 
 function queueQuery(client, roomId) {
   return client.track.findMany({
-    where: { roomId },
+    where: { roomId, status: 'QUEUED' },
     orderBy: [{ position: 'asc' }],
     include: { _count: { select: { votes: true } } },
   });
@@ -79,57 +33,93 @@ export async function getTracksForRoom(roomId, userId) {
 }
 
 /**
- * Recomputes positions (votes desc, then oldest first) in a single statement.
+ * Recomputes positions of the QUEUED tracks (votes desc, then oldest first) in a
+ * single statement; the playing and played tracks get position 0.
  * Must be called inside a transaction holding the room lock.
  */
-async function reorderQueue(tx, roomId) {
+export async function reorderQueue(tx, roomId) {
   await tx.$executeRaw`
     UPDATE "Track" AS t
-    SET "position" = r.rn
-    FROM (
+    SET "position" = COALESCE(r.rn, 0)
+    FROM "Track" AS t2
+    LEFT JOIN (
       SELECT "id",
              ROW_NUMBER() OVER (ORDER BY "voteCount" DESC, "createdAt" ASC, "id" ASC) AS rn
       FROM "Track"
-      WHERE "roomId" = ${roomId}
-    ) AS r
-    WHERE t."id" = r."id" AND t."position" IS DISTINCT FROM r.rn`;
+      WHERE "roomId" = ${roomId} AND "status" = 'QUEUED'
+    ) AS r ON r."id" = t2."id"
+    WHERE t."id" = t2."id" AND t."roomId" = ${roomId}
+      AND t."position" IS DISTINCT FROM COALESCE(r.rn, 0)`;
 
   return queueQuery(tx, roomId);
 }
 
-async function findTrackOrThrow(tx, roomId, trackId) {
+async function findTrackOrThrow(tx, roomId, trackId, { queuedOnly = false } = {}) {
   const track = await tx.track.findFirst({ where: { id: trackId, roomId } });
   if (!track) throw new ServiceError(404, 'TRACK_NOT_FOUND', 'Titre introuvable');
+  if (queuedOnly && track.status !== 'QUEUED') {
+    throw new ServiceError(409, 'TRACK_NOT_QUEUED', 'Ce titre n\'est plus dans la file d\'attente');
+  }
   return track;
 }
 
 export async function suggestTrack(roomId, userId, trackData) {
-  const { externalId, title, artist, album, preview, duration } = trackData;
+  const { externalId, title, artist, album, preview, coverUrl, duration } = trackData;
 
   return withRoomLock(roomId, async (tx) => {
     const existing = await tx.track.findUnique({
       where: { roomId_externalId: { roomId, externalId } },
     });
 
-    if (existing) {
-      throw new ServiceError(409, 'TRACK_ALREADY_IN_QUEUE', 'Ce titre est déjà dans la file');
+    if (existing && existing.status !== 'PLAYED') {
+      throw new ServiceError(
+        409,
+        'TRACK_ALREADY_IN_QUEUE',
+        existing.status === 'PLAYING'
+          ? 'Ce titre est en cours de lecture'
+          : 'Ce titre est déjà dans la file'
+      );
     }
 
-    const count = await tx.track.count({ where: { roomId } });
+    const count = await tx.track.count({ where: { roomId, status: 'QUEUED' } });
 
-    const created = await tx.track.create({
-      data: {
-        roomId,
-        externalId,
-        title,
-        artist,
-        album,
-        preview,
-        duration,
-        position: count + 1,
-        suggestedBy: userId,
-      },
-    });
+    let created;
+    if (existing) {
+      // A track that was already played can be suggested again: fresh votes, fresh turn.
+      await tx.vote.deleteMany({ where: { trackId: existing.id } });
+      created = await tx.track.update({
+        where: { id: existing.id },
+        data: {
+          status: 'QUEUED',
+          voteCount: 0,
+          version: { increment: 1 },
+          position: count + 1,
+          suggestedBy: userId,
+          createdAt: new Date(),
+          title,
+          artist,
+          album,
+          preview,
+          coverUrl,
+          duration,
+        },
+      });
+    } else {
+      created = await tx.track.create({
+        data: {
+          roomId,
+          externalId,
+          title,
+          artist,
+          album,
+          preview,
+          coverUrl,
+          duration,
+          position: count + 1,
+          suggestedBy: userId,
+        },
+      });
+    }
 
     await reorderQueue(tx, roomId);
 
@@ -140,7 +130,7 @@ export async function suggestTrack(roomId, userId, trackData) {
 
 export async function voteForTrack(roomId, trackId, userId) {
   return withRoomLock(roomId, async (tx) => {
-    await findTrackOrThrow(tx, roomId, trackId);
+    await findTrackOrThrow(tx, roomId, trackId, { queuedOnly: true });
 
     try {
       await tx.vote.create({ data: { trackId, userId } });
@@ -165,7 +155,7 @@ export async function voteForTrack(roomId, trackId, userId) {
 
 export async function removeVote(roomId, trackId, userId) {
   return withRoomLock(roomId, async (tx) => {
-    await findTrackOrThrow(tx, roomId, trackId);
+    await findTrackOrThrow(tx, roomId, trackId, { queuedOnly: true });
 
     const { count } = await tx.vote.deleteMany({ where: { trackId, userId } });
 
@@ -186,7 +176,14 @@ export async function removeVote(roomId, trackId, userId) {
 
 export async function deleteTrack(roomId, trackId) {
   return withRoomLock(roomId, async (tx) => {
-    await findTrackOrThrow(tx, roomId, trackId);
+    const track = await findTrackOrThrow(tx, roomId, trackId);
+    if (track.status === 'PLAYING') {
+      throw new ServiceError(
+        409,
+        'TRACK_PLAYING',
+        'Ce titre est en cours de lecture, passez-le avec « skip »'
+      );
+    }
 
     await tx.track.delete({ where: { id: trackId } });
 

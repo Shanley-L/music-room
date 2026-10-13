@@ -25,7 +25,7 @@ export type ChannelKind = 'room' | 'playlist' | 'devicePlayer' | 'deviceWatch';
  * Ack of a join or of `emitAck`. Local codes: `TIMEOUT` (no ack within ACK_TIMEOUT_MS)
  * and `NOT_CONNECTED` (`emitAck` while the socket is down).
  */
-export type JoinAck = { ok: true } | { ok: false; code: string };
+export type JoinAck = { ok: true; playback?: any } | { ok: false; code: string };
 
 type EventListener = (event: string, payload: any) => void;
 

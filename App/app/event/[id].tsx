@@ -19,9 +19,11 @@ import { useSocket, useSocketChannel } from '../../contexts/SocketContext';
 import { ConnectionBanner } from '../../components/ConnectionBanner';
 import { TrackSearchModal } from '../../components/TrackSearchModal';
 import { InviteUserModal } from '../../components/InviteUserModal';
-import { codeMessage, errorMessage, notify } from '../../utils/feedback';
+import { NowPlayingBar } from '../../components/NowPlayingBar';
+import { EditRoomModal } from '../../components/EditRoomModal';
+import { codeMessage, confirmAction, errorMessage, notify } from '../../utils/feedback';
 import { LoadError } from '../../components/LoadError';
-import { LICENSE_LABELS, Room, RoomTrack } from '../../types/room';
+import { LICENSE_LABELS, PlaybackState, ROLE_LABELS, Room, RoomTrack } from '../../types/room';
 import type { DeezerTrack } from '../(tabs)/home';
 
 // A `vote:changed` echo of my own vote arrives within this delay of the response.
@@ -58,6 +60,11 @@ export default function EventVoteScreen() {
   const [myVotes, setMyVotes] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<Set<string>>(new Set());
 
+  const [playback, setPlayback] = useState<PlaybackState | null>(null);
+  const [playbackReceivedAt, setPlaybackReceivedAt] = useState(0);
+  const [editVisible, setEditVisible] = useState(false);
+  const [manageOpen, setManageOpen] = useState(false);
+
   const [suggestVisible, setSuggestVisible] = useState(false);
   const [inviteVisible, setInviteVisible] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -72,6 +79,9 @@ export default function EventVoteScreen() {
 
   const live = joinedLive && status === 'connected';
   const isOwner = !!room && !!user && room.ownerId === user.id;
+  const permissions = room?.permissions;
+  const voteBlocked = permissions ? !permissions.canVote : false;
+  const role = room?.myRole ?? (isOwner ? 'OWNER' : 'MEMBER');
 
   const leaveWithNotice = useCallback(
     (message: string) => {
@@ -124,10 +134,31 @@ export default function EventVoteScreen() {
     }
   }, [id, apiFetch, leaveWithNotice]);
 
+  /** Applies a server playback state unless a newer one was already applied. */
+  const applyPlayback = useCallback((state: PlaybackState | null | undefined) => {
+    if (!state || typeof state.serverTime !== 'string') return;
+    setPlayback((prev) => {
+      if (prev && Date.parse(prev.serverTime) > Date.parse(state.serverTime)) return prev;
+      setPlaybackReceivedAt(Date.now());
+      return state;
+    });
+  }, []);
+
+  const fetchPlayback = useCallback(async () => {
+    if (!id) return;
+    try {
+      const res = await apiFetch(`/api/rooms/${id}/playback`);
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) applyPlayback(data);
+    } catch (err) {
+      console.log('Error loading playback:', err);
+    }
+  }, [id, apiFetch, applyPlayback]);
+
   const refreshAll = useCallback(async () => {
-    await Promise.all([fetchRoom(), fetchQueue()]);
+    await Promise.all([fetchRoom(), fetchQueue(), fetchPlayback()]);
     setLoading(false);
-  }, [fetchRoom, fetchQueue]);
+  }, [fetchRoom, fetchQueue, fetchPlayback]);
 
   useEffect(() => {
     refreshAll();
@@ -161,6 +192,7 @@ export default function EventVoteScreen() {
   useSocketChannel('room', id, {
     onJoin: (ack) => {
       if (ack.ok) {
+        applyPlayback(ack.playback);
         setJoinedLive(true);
         setLiveError(null);
         // (Re)joined: whatever happened while away is only known by the server.
@@ -188,6 +220,13 @@ export default function EventVoteScreen() {
             });
           }
           break;
+        case 'playback:updated':
+          applyPlayback(payload as PlaybackState);
+          break;
+        case 'room:updated':
+          // Settings, roles or permissions may have changed: they are per user, reread.
+          fetchRoom();
+          break;
         case 'vote:changed': {
           // A vote not made from this screen (maybe mine from another device): reread
           // the queue for `hasVoted`, at most once per burst.
@@ -212,6 +251,89 @@ export default function EventVoteScreen() {
       }
     },
   });
+
+  const controlPlayback = useCallback(
+    async (action: 'play' | 'pause' | 'resume' | 'skip') => {
+      try {
+        const res = await apiFetch(`/api/rooms/${id}/playback/${action}`, { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) applyPlayback(data);
+        else notify('Lecture', errorMessage(data, 'Action impossible'));
+      } catch (err: any) {
+        notify('Lecture', err?.message || 'Action impossible');
+      }
+    },
+    [id, apiFetch, applyPlayback]
+  );
+
+  const reportEnded = useCallback(
+    async (trackId: string) => {
+      try {
+        const res = await apiFetch(`/api/rooms/${id}/playback/ended`, {
+          method: 'POST',
+          body: JSON.stringify({ trackId }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) applyPlayback(data);
+      } catch (err) {
+        console.log('Error reporting end of track:', err);
+      }
+    },
+    [id, apiFetch, applyPlayback]
+  );
+
+  const removeTrack = (track: RoomTrack) => {
+    confirmAction('Retirer ce titre ?', `${track.title} sera retiré de la file.`, 'Retirer', async () => {
+      try {
+        const res = await apiFetch(`/api/rooms/${id}/tracks/${track.id}`, { method: 'DELETE' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) notify('Titre', errorMessage(data, 'Impossible de retirer ce titre'));
+        else syncAfterWrite();
+      } catch (err: any) {
+        notify('Titre', err?.message || 'Impossible de retirer ce titre');
+      }
+    });
+  };
+
+  const regenerateCode = () => {
+    confirmAction(
+      "Régénérer le code ?",
+      "L'ancien code ne fonctionnera plus. Les invités actuels gardent leur accès.",
+      'Régénérer',
+      async () => {
+        try {
+          const res = await apiFetch(`/api/rooms/${id}/invite-code`, { method: 'POST' });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) notify('Code', errorMessage(data, 'Impossible de régénérer le code'));
+          else fetchRoom();
+        } catch (err: any) {
+          notify('Code', err?.message || 'Impossible de régénérer le code');
+        }
+      }
+    );
+  };
+
+  const deleteRoom = () => {
+    confirmAction(
+      "Supprimer l'événement ?",
+      'La salle, ses titres et ses votes seront supprimés pour tout le monde.',
+      'Supprimer',
+      async () => {
+        try {
+          const res = await apiFetch(`/api/rooms/${id}`, { method: 'DELETE' });
+          if (res.ok || res.status === 204) {
+            leaving.current = true;
+            router.replace('/(tabs)/events');
+            return;
+          }
+          const data = await res.json().catch(() => ({}));
+          notify('Suppression', errorMessage(data, "Impossible de supprimer l'événement"));
+        } catch (err: any) {
+          notify('Suppression', err?.message || "Impossible de supprimer l'événement");
+        }
+      }
+    );
+  };
 
   /** Without the live channel, a write is not echoed back: read the queue again. */
   const syncAfterWrite = () => {
@@ -245,6 +367,10 @@ export default function EventVoteScreen() {
 
   const toggleVote = async (track: RoomTrack) => {
     if (!room || pending.has(track.id)) return;
+    if (voteBlocked && !myVotes.has(track.id)) {
+      notify('Vote', permissions?.voteBlockedReason || 'Vous ne pouvez pas voter ici.');
+      return;
+    }
     const voted = myVotes.has(track.id);
     setPending((prev) => new Set(prev).add(track.id));
     localVotes.current.set(track.id, Infinity);
@@ -308,6 +434,7 @@ export default function EventVoteScreen() {
           artist: track.artist.name,
           album: track.album.title || null,
           preview: track.preview || null,
+          coverUrl: track.album.cover_medium || null,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -455,6 +582,9 @@ export default function EventVoteScreen() {
           <View style={[styles.badge, styles.licenseBadge]}>
             <Text style={[styles.badgeText, { color: '#a77bf3' }]}>{LICENSE_LABELS[room.license]}</Text>
           </View>
+          <View style={[styles.badge, styles.roleBadge]}>
+            <Text style={[styles.badgeText, { color: '#fff' }]}>{ROLE_LABELS[role]}</Text>
+          </View>
           {isOwner && room.invites ? (
             <View style={styles.badge}>
               <Text style={styles.badgeText}>
@@ -482,6 +612,55 @@ export default function EventVoteScreen() {
         )}
       </View>
 
+      <NowPlayingBar
+        playback={playback}
+        receivedAt={playbackReceivedAt}
+        canControl={!!permissions?.canControlPlayback || isOwner}
+        onControl={controlPlayback}
+        onEnded={reportEnded}
+      />
+
+      {voteBlocked ? (
+        <View style={styles.voteBlocked}>
+          <Ionicons name="lock-closed" size={14} color="#f59e0b" />
+          <Text style={styles.voteBlockedText}>
+            Vote indisponible : {permissions?.voteBlockedReason || 'licence de la salle'}
+          </Text>
+        </View>
+      ) : permissions?.voteRequiresLocation && permissions.voteBlockedReason ? (
+        <Text style={styles.hint}>{permissions.voteBlockedReason}</Text>
+      ) : null}
+
+      {isOwner ? (
+        <View style={styles.manageBox}>
+          <Pressable
+            onPress={() => setManageOpen((o) => !o)}
+            style={styles.manageHeader}
+            accessibilityRole="button"
+            accessibilityLabel="Gérer l'événement"
+          >
+            <Ionicons name="settings-outline" size={16} color="#a77bf3" />
+            <Text style={styles.manageTitle}>Gérer l'événement</Text>
+            <Ionicons name={manageOpen ? 'chevron-up' : 'chevron-down'} size={16} color="#888" />
+          </Pressable>
+          {manageOpen ? (
+            <View style={styles.manageActions}>
+              <Pressable style={styles.manageBtn} onPress={() => setEditVisible(true)} accessibilityRole="button">
+                <Text style={styles.manageBtnText}>Modifier</Text>
+              </Pressable>
+              {room.visibility === 'PRIVATE' ? (
+                <Pressable style={styles.manageBtn} onPress={regenerateCode} accessibilityRole="button">
+                  <Text style={styles.manageBtnText}>Nouveau code</Text>
+                </Pressable>
+              ) : null}
+              <Pressable style={[styles.manageBtn, styles.dangerBtn]} onPress={deleteRoom} accessibilityRole="button">
+                <Text style={[styles.manageBtnText, { color: '#fca5a5' }]}>Supprimer</Text>
+              </Pressable>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
       <Pressable
         style={styles.suggestBar}
         onPress={() => setSuggestVisible(true)}
@@ -491,6 +670,7 @@ export default function EventVoteScreen() {
         <Text style={styles.suggestBarText}>Suggérer un titre</Text>
       </Pressable>
 
+      <Text style={styles.sectionTitle}>À suivre</Text>
       <FlatList
         data={queue}
         keyExtractor={(item) => item.id}
@@ -498,8 +678,8 @@ export default function EventVoteScreen() {
         ListEmptyComponent={
           <View style={styles.emptyQueue}>
             <Ionicons name="musical-note" size={44} color="#333" />
-            <Text style={styles.emptyQueueTitle}>File vide</Text>
-            <Text style={styles.emptyQueueSub}>Suggérez le premier titre depuis Deezer</Text>
+            <Text style={styles.emptyQueueTitle}>Rien à suivre</Text>
+            <Text style={styles.emptyQueueSub}>Suggérez un titre depuis Deezer</Text>
           </View>
         }
         renderItem={({ item, index }) => {
@@ -517,15 +697,30 @@ export default function EventVoteScreen() {
                   {index === 0 ? '  •  Prochain titre' : ''}
                 </Text>
               </View>
+              {permissions?.canRemoveTrack ? (
+                <Pressable
+                  onPress={() => removeTrack(item)}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Retirer ${item.title}`}
+                  style={{ marginRight: 8 }}
+                >
+                  <Ionicons name="trash-outline" size={18} color="#888" />
+                </Pressable>
+              ) : null}
               <Pressable
                 onPress={() => toggleVote(item)}
-                disabled={busy}
+                disabled={busy || (voteBlocked && !voted)}
                 accessibilityRole="button"
                 accessibilityLabel={
                   voted ? `Retirer mon vote pour ${item.title}` : `Voter pour ${item.title}`
                 }
                 hitSlop={6}
-                style={[styles.voteButton, voted && styles.voteButtonActive, busy && { opacity: 0.5 }]}
+                style={[
+                  styles.voteButton,
+                  voted && styles.voteButtonActive,
+                  (busy || (voteBlocked && !voted)) && { opacity: 0.5 },
+                ]}
               >
                 {busy ? (
                   <ActivityIndicator size="small" color="#fff" />
@@ -545,6 +740,15 @@ export default function EventVoteScreen() {
         onClose={() => setSuggestVisible(false)}
         onPick={suggestTrack}
       />
+
+      {isOwner && (
+        <EditRoomModal
+          visible={editVisible}
+          room={room}
+          onClose={() => setEditVisible(false)}
+          onSaved={fetchRoom}
+        />
+      )}
 
       {isOwner && (
         <InviteUserModal
@@ -660,6 +864,43 @@ const styles = StyleSheet.create({
   geoText: {
     color: '#888',
     fontSize: 12,
+  },
+  roleBadge: { backgroundColor: '#652edc' },
+  voteBlocked: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#2d1f05',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 12,
+  },
+  voteBlockedText: { color: '#f59e0b', fontSize: 12, flex: 1 },
+  hint: { color: '#888', fontSize: 12, marginBottom: 10, textAlign: 'center' },
+  manageBox: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 12,
+  },
+  manageHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  manageTitle: { color: '#fff', fontSize: 13, fontWeight: '700', flex: 1 },
+  manageActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
+  manageBtn: {
+    backgroundColor: '#262626',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  dangerBtn: { backgroundColor: '#2a1212' },
+  manageBtnText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  sectionTitle: {
+    color: '#aaa',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginBottom: 8,
   },
   suggestBar: {
     flexDirection: 'row',

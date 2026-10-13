@@ -39,7 +39,7 @@ after(async () => {
 test('sockets connect, join and receive events without Redis', async () => {
   const room = await createRoom(owner, { name: 'Sans Redis' });
   const socket = await connectSocket(owner);
-  assert.deepEqual(await emitAck(socket, 'room:join', { roomId: room.id }), { ok: true });
+  assert.equal((await emitAck(socket, 'room:join', { roomId: room.id })).ok, true);
 
   const track = await suggestTrack(owner, room.id);
   const vote = await api('POST', `/api/rooms/${room.id}/tracks/${track.id}/vote`, {

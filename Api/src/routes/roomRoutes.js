@@ -10,6 +10,7 @@ import {
   removeInvite,
   remove,
   regenerateCode,
+  update,
 } from '../controllers/roomController.js';
 import { joinCodeLimiter } from '../middleware/rateLimit.js';
 
@@ -53,6 +54,25 @@ router.use(authMiddleware);
  *           type: array
  *           description: Visible uniquement par le propriétaire
  *           items: { $ref: '#/components/schemas/RoomInvite' }
+ *         playbackStatus: { type: string, enum: [IDLE, PLAYING, PAUSED] }
+ *         currentTrackId: { type: string, nullable: true }
+ *         myRole:
+ *           type: string
+ *           enum: [OWNER, INVITED, MEMBER]
+ *           description: Uniquement sur GET/PATCH /api/rooms/{id}
+ *         permissions:
+ *           type: object
+ *           description: Calculées côté serveur (GET/PATCH /api/rooms/{id})
+ *           properties:
+ *             canVote: { type: boolean, description: 'true aussi quand la position est requise (voteRequiresLocation)' }
+ *             voteRequiresLocation: { type: boolean }
+ *             voteBlockedReason: { type: string, nullable: true }
+ *             voteBlockedCode: { type: string, nullable: true }
+ *             canSuggest: { type: boolean }
+ *             canControlPlayback: { type: boolean }
+ *             canManageRoom: { type: boolean }
+ *             canInvite: { type: boolean }
+ *             canRemoveTrack: { type: boolean }
  *     RoomInvite:
  *       type: object
  *       properties:
@@ -197,6 +217,33 @@ router.post('/join', joinCodeLimiter, join);
  *             schema: { $ref: '#/components/schemas/Error' }
  *       404:
  *         description: ROOM_NOT_FOUND
+ *   patch:
+ *     summary: Modifier une salle (propriétaire)
+ *     description: >
+ *       Modifie nom, visibilité, licence et paramètres géo/horaires (mêmes validations qu'à la création,
+ *       contrôlées sur la salle résultante ; `null` efface zone ou plage horaire). Passer en privé génère
+ *       un code d'invitation et retire les abonnés temps réel non invités ; repasser en public supprime le code.
+ *       Diffuse `room:updated`.
+ *     tags: [Rooms]
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema: { $ref: '#/components/schemas/CreateRoomInput' }
+ *     responses:
+ *       200:
+ *         description: Salle mise à jour (avec myRole et permissions)
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/Room' }
+ *       400:
+ *         description: VALIDATION_ERROR ou GEO_CONFIG_REQUIRED
+ *       403:
+ *         description: NOT_ROOM_OWNER
+ *       404:
+ *         description: ROOM_NOT_FOUND
  *   delete:
  *     summary: Supprimer une salle (propriétaire)
  *     tags: [Rooms]
@@ -211,6 +258,7 @@ router.post('/join', joinCodeLimiter, join);
  *         description: ROOM_NOT_FOUND
  */
 router.get('/:id', getOne);
+router.patch('/:id', update);
 router.delete('/:id', remove);
 
 /**

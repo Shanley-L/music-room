@@ -18,6 +18,7 @@ const suggestSchema = z.object({
   artist: z.string().trim().min(1, 'externalId, title et artist sont requis'),
   album: z.string().optional().nullable(),
   preview: z.string().optional().nullable(),
+  coverUrl: z.string().max(2048).optional().nullable(),
   duration: z.number().int().nonnegative().max(2147483647).optional().nullable(),
 });
 

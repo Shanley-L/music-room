@@ -21,6 +21,44 @@ export type Room = {
   /** Owner only. */
   invites?: { id: string; roomId: string; userId: string; createdAt: string }[];
   _count?: { tracks: number };
+  /** Only in GET / PATCH /api/rooms/:id. */
+  myRole?: RoomRole;
+  permissions?: RoomPermissions;
+};
+
+export type RoomRole = 'OWNER' | 'INVITED' | 'MEMBER';
+
+export const ROLE_LABELS: Record<RoomRole, string> = {
+  OWNER: 'Organisateur',
+  INVITED: 'Invité',
+  MEMBER: 'Membre',
+};
+
+export type RoomPermissions = {
+  /** True too when the position is required (`voteRequiresLocation`). */
+  canVote: boolean;
+  voteRequiresLocation: boolean;
+  /** French reason when voting is (or may be) blocked by the license. */
+  voteBlockedReason: string | null;
+  voteBlockedCode: string | null;
+  canSuggest: boolean;
+  canControlPlayback: boolean;
+  canManageRoom: boolean;
+  canInvite: boolean;
+  canRemoveTrack: boolean;
+};
+
+export type PlaybackStatus = 'IDLE' | 'PLAYING' | 'PAUSED';
+
+/** Server playback state (REST GET /playback and socket `playback:updated`). */
+export type PlaybackState = {
+  roomId: string;
+  status: PlaybackStatus;
+  currentTrack: (RoomTrack & { durationMs: number }) | null;
+  /** Server time at which position 0 would have been reached (null unless PLAYING). */
+  startedAt: string | null;
+  positionMs: number;
+  serverTime: string;
 };
 
 export type RoomTrack = {
@@ -31,6 +69,7 @@ export type RoomTrack = {
   artist: string;
   album: string | null;
   preview: string | null;
+  coverUrl?: string | null;
   duration: number | null;
   voteCount: number;
   /** 1 = next track. */

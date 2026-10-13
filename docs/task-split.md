@@ -37,12 +37,14 @@
 - [x] Licences : tout le monde / invités seulement / lieu + plage horaire
 - [x] Socket.IO : `queue:updated`, `track:suggested`, `vote:changed`, révocations
 - [x] Adaptateur Redis (Pub/Sub entre instances)
+- [x] Lecture synchronisée de la salle (`/playback/*`, `playback:updated`), rôles et permissions (`myRole`, `permissions`), `PATCH /api/rooms/:id` (`room:updated`)
 
 ### Mobile
 - [x] Création d'un événement (nom, visibilité, licence, zone et horaires)
 - [x] Rejoindre un événement (publics, code privé, mes salles)
 - [x] Vote en temps réel (file, voter / retirer, suggestion via Deezer)
 - [x] Client WebSocket partagé (`SocketContext`)
+- [x] Salle live : « en cours » synchronisé, contrôles propriétaire, section gestion, badge de rôle
 
 ---
 

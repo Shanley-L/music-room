@@ -8,7 +8,7 @@ import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
  *
  * Limits are read from the environment when the limiter is created (process start):
  * - RATE_LIMIT_<NAME>_MAX and RATE_LIMIT_<NAME>_WINDOW_MS override one limiter
- *   (NAME = AUTH, API, JOIN_CODE, USER_SEARCH, FRIEND_REQUEST, VOTE, DEVICE_REGISTER);
+ *   (NAME = AUTH, API, JOIN_CODE, USER_SEARCH, FRIEND_REQUEST, VOTE, DEVICE_REGISTER, PLAYBACK);
  * - RATE_LIMIT_DISABLED=true turns every limiter off, for local tooling only:
  *   it is ignored when NODE_ENV=production.
  */
@@ -91,6 +91,13 @@ export const voteLimiter = createLimiter('VOTE', {
   windowMs: MINUTE,
   max: 60,
   error: 'Trop de votes. Veuillez ralentir.',
+});
+
+// Playback controls and `ended` reports of a room: anti flooding.
+export const playbackLimiter = createLimiter('PLAYBACK', {
+  windowMs: MINUTE,
+  max: 120,
+  error: 'Trop de requêtes de lecture. Veuillez ralentir.',
 });
 
 // Device registration: bounds the number of devices (and delegation targets) created.

@@ -17,6 +17,18 @@ enum VoteLicense {
   GEO_TIME_RESTRICTED
 }
 
+enum PlaybackStatus {
+  IDLE
+  PLAYING
+  PAUSED
+}
+
+enum TrackStatus {
+  QUEUED
+  PLAYING
+  PLAYED
+}
+
 model Room {
   id          String         @id @default(cuid())
   name        String
@@ -29,6 +41,13 @@ model Room {
   radiusM     Int?
   voteStartAt DateTime?
   voteEndAt   DateTime?
+
+  // Live playback (server is the source of truth). While PLAYING, the position is
+  // now - playbackStartedAt; while PAUSED it is pausedPositionMs.
+  playbackStatus    PlaybackStatus @default(IDLE)
+  currentTrackId    String?
+  playbackStartedAt DateTime?
+  pausedPositionMs  Int            @default(0)
 
   ownerId   String
   createdAt DateTime @default(now())
@@ -57,8 +76,10 @@ model Track {
   artist     String
   album      String?
   preview    String?
+  coverUrl   String?
   duration   Int?
 
+  status      TrackStatus @default(QUEUED)
   voteCount   Int @default(0)
   version     Int @default(0)
   position    Int

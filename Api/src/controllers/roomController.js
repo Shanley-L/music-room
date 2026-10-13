@@ -9,12 +9,15 @@ import {
   removeInvite as removeInviteService,
   deleteRoom,
   regenerateInviteCode,
+  describeAccess,
+  updateRoom,
+  publicRoomFields,
   isUserAllowedInRoom,
   sanitizeRoomForUser,
   hasZone,
   hasWindow,
 } from '../services/roomService.js';
-import { emitToRoom, evictFromRoom, revokeRoomAccess } from '../lib/realtime.js';
+import { emitToRoom, evictFromRoom, revokeRoomAccess, revokeRoomSubscribers } from '../lib/realtime.js';
 
 // Only date strings (e.g. ISO 8601) are accepted: null, numbers and booleans are rejected
 // instead of being coerced to 1970.
@@ -53,6 +56,23 @@ const createRoomSchema = z
         path: ['voteEndAt'],
       });
     }
+  });
+
+// PATCH: every field optional; null clears the zone / time window fields. The merged
+// room is validated again by the service (zone complete, window ordered, geo license).
+const updateRoomSchema = z
+  .object({
+    name: createRoomSchema.shape.name.optional(),
+    visibility: z.enum(['PUBLIC', 'PRIVATE']).optional(),
+    license: z.enum(['EVERYONE', 'INVITED_ONLY', 'GEO_TIME_RESTRICTED']).optional(),
+    latitude: z.number().min(-90).max(90).nullable().optional(),
+    longitude: z.number().min(-180).max(180).nullable().optional(),
+    radiusM: z.number().int().positive().max(2147483647).nullable().optional(),
+    voteStartAt: dateString('voteStartAt').nullable().optional(),
+    voteEndAt: dateString('voteEndAt').nullable().optional(),
+  })
+  .refine((d) => Object.values(d).some((v) => v !== undefined), {
+    message: 'Aucun champ à modifier',
   });
 
 const inviteSchema = z.object({
@@ -112,7 +132,28 @@ export async function getOne(req, res) {
     return res.status(403).json({ error: 'Accès refusé à cette salle', code: 'ROOM_FORBIDDEN' });
   }
 
-  return res.json(sanitizeRoomForUser(room, req.user.id));
+  const access = await describeAccess(room, req.user.id);
+  return res.json({ ...sanitizeRoomForUser(room, req.user.id), ...access });
+}
+
+export async function update(req, res) {
+  const parsed = updateRoomSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return validationError(res, parsed.error);
+
+  const result = await updateRoom(req.params.id, req.user.id, parsed.data);
+  if (result.error) return sendServiceError(res, result);
+
+  const { room } = result;
+  emitToRoom(room.id, 'room:updated', { roomId: room.id, room: publicRoomFields(room) });
+
+  // Became private: subscribers who are neither the owner nor invited lose access.
+  if (room.visibility === 'PRIVATE') {
+    const full = await getRoomById(room.id);
+    const invited = new Set(full?.invites.map((i) => i.userId) ?? []);
+    await revokeRoomSubscribers(room.id, (userId) => userId === room.ownerId || invited.has(userId));
+  }
+
+  return res.json({ ...room, ...(await describeAccess(room, req.user.id)) });
 }
 
 export async function join(req, res) {
