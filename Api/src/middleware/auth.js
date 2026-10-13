@@ -47,15 +47,21 @@ export async function optionalAuth(req, res, next) {
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.split(' ')[1];
       const blacklisted = await isTokenBlacklisted(token);
-      if (!blacklisted) {
-        const decoded = jwt.verify(token, JWT_SECRET);
-        req.user = { id: decoded.sub, email: decoded.email, name: decoded.name };
+      if (blacklisted) {
+        return res.status(401).json({ error: 'Token révoqué / déconnecté' });
       }
+      const decoded = jwt.verify(token, JWT_SECRET);
+      req.user = { id: decoded.sub, email: decoded.email, name: decoded.name };
+      return next();
     } else if (req.headers['x-dev-user-id']) {
       req.user = { id: req.headers['x-dev-user-id'] };
+      return next();
     }
-  } catch (e) {
-    // ignore
+    return next();
+  } catch (err) {
+    if (err.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: 'Token expiré' });
+    }
+    return next();
   }
-  next();
 }

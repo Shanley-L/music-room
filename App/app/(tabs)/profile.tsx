@@ -134,7 +134,7 @@ export default function ProfileScreen() {
         <View style={styles.statusRow}>
           {user.isEmailVerified ? (
             <View style={styles.verifiedBadge}>
-              <Ionicons name="checkmark-circle" size={14} color="#1DB954" />
+              <Ionicons name="checkmark-circle" size={14} color="#652edc" />
               <Text style={styles.verifiedText}>Email vérifié</Text>
             </View>
           ) : (
@@ -266,7 +266,7 @@ export default function ProfileScreen() {
             <Text style={styles.serverLabel}>Adresse actuelle</Text>
             <Text style={styles.serverVal} numberOfLines={1}>{backendUrl}</Text>
           </View>
-          <Ionicons name="create-outline" size={20} color="#1DB954" />
+          <Ionicons name="create-outline" size={20} color="#652edc" />
         </TouchableOpacity>
       </View>
 
@@ -374,7 +374,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   loginBtn: {
-    backgroundColor: '#1DB954',
+    backgroundColor: '#652edc',
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 20,
@@ -391,7 +391,7 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#1DB954',
+    backgroundColor: '#652edc',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 12,
@@ -424,7 +424,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   verifiedText: {
-    color: '#1DB954',
+    color: '#652edc',
     fontSize: 12,
     fontWeight: '600',
   },
@@ -482,7 +482,7 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   saveButton: {
-    backgroundColor: '#1DB954',
+    backgroundColor: '#652edc',
     borderRadius: 24,
     paddingVertical: 14,
     alignItems: 'center',
@@ -521,7 +521,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   linkedText: {
-    color: '#1DB954',
+    color: '#652edc',
     fontSize: 12,
     fontWeight: 'bold',
   },
@@ -551,7 +551,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
   serverVal: {
-    color: '#1DB954',
+    color: '#652edc',
     fontSize: 14,
     fontWeight: '500',
     marginTop: 2,
@@ -623,7 +623,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#333',
   },
   saveModalBtn: {
-    backgroundColor: '#1DB954',
+    backgroundColor: '#652edc',
   },
   modalBtnText: {
     color: '#fff',
