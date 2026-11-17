@@ -1,3 +1,4 @@
+import 'reflect-metadata';
 import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
@@ -5,6 +6,8 @@ import deezerRoutes from './routes/deezerRoutes.js';
 import playlistRoutes from './routes/playlistRoutes.js';
 import roomRoutes from './routes/roomRoutes.js';
 import trackRoutes from './routes/trackRoutes.js';
+import authRoutes from './routes/authRoutes.js';
+import userRoutes from './routes/userRoutes.js';
 
 dotenv.config();
 
@@ -19,6 +22,8 @@ app.use('/api/deezer', deezerRoutes);
 app.use('/api/playlists', playlistRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api/rooms/:roomId/tracks', trackRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
 
 const port = process.env.PORT || 3000;
 
