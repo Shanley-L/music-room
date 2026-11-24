@@ -27,7 +27,7 @@ interface AuthContextType {
   /** DEV ONLY: simulated Google login, works only when the API has ALLOW_DEV_OAUTH=true. */
   devOAuthLogin: () => Promise<{ success: boolean; error?: string }>;
   verifyEmail: (code: string, email?: string) => Promise<{ success: boolean; error?: string }>;
-  forgotPassword: (email: string) => Promise<{ success: boolean; error?: string; resetCode?: string }>;
+  forgotPassword: (email: string) => Promise<{ success: boolean; error?: string }>;
   resetPassword: (email: string, code: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
   updateProfile: (data: Partial<User>) => Promise<{ success: boolean; error?: string }>;
   /** Links the Google account behind `idToken` to the signed-in user. */
@@ -216,8 +216,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         method: 'POST',
         body: JSON.stringify({ email }),
       });
-      const data = await res.json();
-      return { success: true, resetCode: data.resetCode };
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return { success: false, error: data.error || 'Une erreur est survenue.' };
+      return { success: true };
     } catch (e: any) {
       return { success: false, error: e.message };
     }
@@ -229,8 +230,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         method: 'POST',
         body: JSON.stringify({ email, resetCode: code, newPassword }),
       });
-      const data = await res.json();
-      if (!res.ok) return { success: false, error: data.error };
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return { success: false, error: data.error || 'Code invalide ou expiré.' };
       return { success: true };
     } catch (e: any) {
       return { success: false, error: e.message };

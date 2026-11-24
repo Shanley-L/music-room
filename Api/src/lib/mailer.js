@@ -1,28 +1,27 @@
 import nodemailer from 'nodemailer';
 
-const host = process.env.SMTP_HOST || 'localhost';
-const port = parseInt(process.env.SMTP_PORT || '1025', 10);
+// Real SMTP (Gmail by default). With a Google account, enable 2-step verification and
+// create an "App password" (https://myaccount.google.com/apppasswords): use it as SMTP_PASS.
+const host = process.env.SMTP_HOST || 'smtp.gmail.com';
+const port = parseInt(process.env.SMTP_PORT || '465', 10);
 const user = process.env.SMTP_USER || null;
-const pass = process.env.SMTP_PASS || null;
-const from = process.env.SMTP_FROM || '"Music Room" <noreply@musicroom.local>';
+const pass = (process.env.SMTP_PASS || '').replace(/\s+/g, '') || null;
+const from = process.env.SMTP_FROM || (user ? `"Music Room" <${user}>` : '"Music Room" <noreply@musicroom.local>');
 
 let transporter = null;
 
 function getTransporter() {
+  if (!user || !pass) {
+    throw new Error('SMTP non configuré : renseignez SMTP_USER et SMTP_PASS (mot de passe d’application Google)');
+  }
   if (!transporter) {
-    const config = {
+    transporter = nodemailer.createTransport({
       host,
       port,
-      secure: port === 465,
-    };
-
-    if (user && pass) {
-      config.auth = { user, pass };
-    } else {
-      config.ignoreTLS = true;
-    }
-
-    transporter = nodemailer.createTransport(config);
+      secure: port === 465, // 465 = TLS direct, 587 = STARTTLS
+      requireTLS: port !== 465,
+      auth: { user, pass },
+    });
   }
   return transporter;
 }

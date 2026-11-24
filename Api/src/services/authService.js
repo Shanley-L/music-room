@@ -77,7 +77,7 @@ export async function register({ email, password, name }) {
     },
   });
 
-  // Asynchronously send validation email via SMTP / Mailpit
+  // Asynchronously send validation email via SMTP
   sendVerificationEmail(user.email, verificationCode, user.name);
 
   return {
@@ -456,7 +456,7 @@ export async function forgotPassword(email) {
   // A new code gets a fresh attempt budget.
   await clearAttempts(attemptsKey('reset-password', user.id));
 
-  // Asynchronously send reset email via SMTP / Mailpit
+  // Asynchronously send reset email via SMTP
   sendPasswordResetEmail(user.email, resetCode);
 
   return {

@@ -20,7 +20,7 @@ import { GoogleAuth, useDevOAuthAvailable } from '../components/GoogleAuth';
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { login, googleLogin, devOAuthLogin, forgotPassword, verifyEmail } = useAuth();
+  const { login, googleLogin, devOAuthLogin, forgotPassword, resetPassword, verifyEmail } = useAuth();
   const { backendUrl, setBackendUrl } = useApiConfig();
   const devOAuthAvailable = useDevOAuthAvailable();
 
@@ -41,7 +41,22 @@ export default function LoginScreen() {
   // Forgot password modal
   const [forgotModalVisible, setForgotModalVisible] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
-  const [resetCodeSent, setResetCodeSent] = useState<string | null>(null);
+  const [resetStep, setResetStep] = useState<'email' | 'code'>('email');
+  const [resetCode, setResetCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
+
+  const notify = (title: string, message: string) => {
+    if (Platform.OS === 'web') window.alert(message);
+    else Alert.alert(title, message);
+  };
+
+  const closeForgotModal = () => {
+    setForgotModalVisible(false);
+    setResetStep('email');
+    setResetCode('');
+    setNewPassword('');
+  };
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
@@ -129,24 +144,36 @@ export default function LoginScreen() {
 
   const handleForgotPassword = async () => {
     if (!forgotEmail.trim()) {
-      Alert.alert('Erreur', 'Veuillez saisir votre adresse email.');
+      notify('Erreur', 'Veuillez saisir votre adresse email.');
       return;
     }
-
+    setResetLoading(true);
     const res = await forgotPassword(forgotEmail.trim());
+    setResetLoading(false);
     if (res.success) {
-      if (Platform.OS === 'web') {
-        window.alert('Si le compte existe, un email contenant votre code de réinitialisation vient de vous être envoyé.');
-      } else {
-        Alert.alert('Email envoyé', 'Si le compte existe, un email contenant votre code de réinitialisation vient de vous être envoyé.');
-      }
-      setForgotModalVisible(false);
+      setResetCode('');
+      setNewPassword('');
+      setResetStep('code');
     } else {
-      if (Platform.OS === 'web') {
-        window.alert(res.error || 'Une erreur est survenue.');
-      } else {
-        Alert.alert('Erreur', res.error || 'Une erreur est survenue.');
-      }
+      notify('Erreur', res.error || 'Une erreur est survenue.');
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (!resetCode.trim() || !newPassword) {
+      notify('Erreur', 'Saisissez le code reçu par email et votre nouveau mot de passe.');
+      return;
+    }
+    setResetLoading(true);
+    const res = await resetPassword(forgotEmail.trim(), resetCode.trim(), newPassword);
+    setResetLoading(false);
+    if (res.success) {
+      setEmail(forgotEmail.trim());
+      setPassword('');
+      closeForgotModal();
+      notify('Mot de passe modifié', 'Vous pouvez maintenant vous connecter avec votre nouveau mot de passe.');
+    } else {
+      notify('Erreur', res.error || 'Code invalide ou expiré.');
     }
   };
 
@@ -317,53 +344,73 @@ export default function LoginScreen() {
           </View>
         </Modal>
 
-        {/* Forgot password Modal */}
+        {/* Forgot password Modal (step 1: email, step 2: code + new password) */}
         <Modal
           visible={forgotModalVisible}
           transparent
           animationType="fade"
-          onRequestClose={() => setForgotModalVisible(false)}
+          onRequestClose={closeForgotModal}
         >
           <View style={styles.modalOverlay}>
             <View style={styles.modalCard}>
               <Text style={styles.modalTitle}>Réinitialisation</Text>
-              <Text style={styles.modalDesc}>
-                Entrez votre adresse email pour recevoir un code de réinitialisation.
-              </Text>
 
-              <TextInput
-                style={styles.modalInput}
-                value={forgotEmail}
-                onChangeText={setForgotEmail}
-                placeholder="exemple@email.com"
-                placeholderTextColor="#666"
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
-
-              {resetCodeSent && (
-                <Text style={{ color: '#1DB954', marginTop: 10, textAlign: 'center' }}>
-                  Code généré : {resetCodeSent}
-                </Text>
+              {resetStep === 'email' ? (
+                <>
+                  <Text style={styles.modalDesc}>
+                    Entrez votre adresse email pour recevoir un code de réinitialisation.
+                  </Text>
+                  <TextInput
+                    style={styles.modalInput}
+                    value={forgotEmail}
+                    onChangeText={setForgotEmail}
+                    placeholder="exemple@email.com"
+                    placeholderTextColor="#666"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                  />
+                </>
+              ) : (
+                <>
+                  <Text style={styles.modalDesc}>
+                    Un code à 6 chiffres a été envoyé à {forgotEmail.trim()} (valable 1 heure). Saisissez-le avec votre nouveau mot de passe.
+                  </Text>
+                  <TextInput
+                    style={[styles.modalInput, { textAlign: 'center', fontSize: 20, letterSpacing: 4 }]}
+                    value={resetCode}
+                    onChangeText={setResetCode}
+                    placeholder="123456"
+                    placeholderTextColor="#666"
+                    keyboardType="number-pad"
+                    maxLength={6}
+                  />
+                  <TextInput
+                    style={styles.modalInput}
+                    value={newPassword}
+                    onChangeText={setNewPassword}
+                    placeholder="Nouveau mot de passe"
+                    placeholderTextColor="#666"
+                    secureTextEntry
+                    autoCapitalize="none"
+                  />
+                  <TouchableOpacity onPress={() => setResetStep('email')} style={{ marginBottom: 16 }}>
+                    <Text style={styles.forgotText}>Renvoyer un code / changer d'email</Text>
+                  </TouchableOpacity>
+                </>
               )}
 
               <View style={styles.modalButtons}>
-                <TouchableOpacity
-                  style={[styles.modalBtn, styles.cancelBtn]}
-                  onPress={() => {
-                    setForgotModalVisible(false);
-                    setResetCodeSent(null);
-                  }}
-                >
+                <TouchableOpacity style={[styles.modalBtn, styles.cancelBtn]} onPress={closeForgotModal}>
                   <Text style={styles.modalBtnText}>Fermer</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.modalBtn, styles.saveBtn]}
-                  onPress={handleForgotPassword}
+                  style={[styles.modalBtn, styles.saveBtn, resetLoading && styles.disabledButton]}
+                  onPress={resetStep === 'email' ? handleForgotPassword : handleResetPassword}
+                  disabled={resetLoading}
                 >
                   <Text style={[styles.modalBtnText, { color: '#000', fontWeight: 'bold' }]}>
-                    Envoyer
+                    {resetStep === 'email' ? 'Envoyer' : 'Réinitialiser'}
                   </Text>
                 </TouchableOpacity>
               </View>

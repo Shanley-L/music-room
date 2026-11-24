@@ -35,7 +35,7 @@ friends-only and private fields, plus music preferences.
    (source of truth:          (JWT blacklist on logout, Socket.IO adapter
     users, rooms, votes,       so several API instances share broadcasts)
     playlists, devices...)
-        external: Deezer API (track search), Google (ID token check), SMTP (mailpit in dev)
+        external: Deezer API (track search), Google (ID token check), SMTP (Gmail)
 ```
 
 The server is the source of truth. Every write goes through REST. The server
@@ -55,7 +55,7 @@ everyone converges on the last committed state. Details: `Api/REALTIME.md`.
 | **JSON** | Native to JS on both sides, readable when debugging, supported by every client and tool. More compact binary formats (protobuf...) are not needed at this scale |
 | **Socket.IO** | Real time is required by the subject (votes, collaborative edits, remote control). Socket.IO adds handshake auth, acks, rooms/channels, automatic reconnection and a Redis adapter on top of WebSocket. Only subscriptions and delegation relays use it; writes stay on REST |
 | **Expo / React Native** | One TypeScript codebase for Android and iOS, file-based routing (expo-router), ready-made modules (auth session for Google, audio, location for the geo license), fast iteration with Expo Go |
-| **Docker Compose + Makefile** | One command brings up Postgres, Redis, mailpit, the API and Expo. Dependencies are downloaded, never committed |
+| **Docker Compose + Makefile** | One command brings up Postgres, Redis, the API and Expo. Dependencies are downloaded, never committed |
 
 ## Repository
 
@@ -80,7 +80,7 @@ Then edit `Api/.env`:
   taken (5432 often is). `make up` reads them;
 - **Google sign-in**: `GOOGLE_CLIENT_ID*` (client ids from Google Cloud) and the same
   ids in `App/.env` (`cp App/.env.example App/.env`);
-- **SMTP**: mailpit is used in development (UI at http://localhost:8025).
+- **SMTP**: real Gmail SMTP. Set `SMTP_USER` (Gmail address) and `SMTP_PASS` (Google "App password") in `Api/.env`; see `Api/.env.example`.
 
 Secrets live only in the git-ignored `.env` files. `JWT_SECRET` and
 `JWT_REFRESH_SECRET` must be at least 32 characters and different from each
@@ -89,7 +89,7 @@ other: the API refuses to start otherwise.
 ## Run
 
 ```sh
-make up        # postgres, redis, mailpit, api (:3000), expo (:8081 / :19000)
+make up        # postgres, redis, api (:3000), expo (:8081 / :19000)
 make logs      # follow the logs
 make down      # stop; `make fclean` also removes the volumes
 ```

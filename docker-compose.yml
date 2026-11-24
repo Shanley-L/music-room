@@ -17,15 +17,6 @@ services:
     ports:
       - "${REDIS_PORT:-6379}:6379"
 
-  mailpit:
-    image: docker.io/axllent/mailpit:latest
-    restart: unless-stopped
-    ports:
-      - "${MAILPIT_SMTP_PORT:-1025}:1025" # SMTP port
-      - "${MAILPIT_UI_PORT:-8025}:8025" # Web UI
-    environment:
-      - MP_MAX_MESSAGES=500
-
   api:
     build:
       context: ./Api
@@ -40,14 +31,10 @@ services:
       - CHOKIDAR_USEPOLLING=true
       - DATABASE_URL=postgresql://musicroom:musicroom@postgres:5432/musicroom
       - REDIS_URL=redis://redis:6379
-      - SMTP_HOST=mailpit
-      - SMTP_PORT=1025
     depends_on:
       postgres:
         condition: service_started
       redis:
-        condition: service_started
-      mailpit:
         condition: service_started
     # JWT secrets, Google and SMTP credentials are read from Api/.env (mounted with ./Api).
     command: sh -c "npx prisma generate && until npx prisma db push; do echo 'Waiting for database...'; sleep 2; done && npm run dev"
